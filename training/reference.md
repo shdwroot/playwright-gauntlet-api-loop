@@ -22,6 +22,7 @@ npm run gauntlet -- <command> [options]
 | Command | Options | Result |
 |---|---|---|
 | `doctor` | `--config <path>` | Validates configuration and contract loading, then reports the target, contract hash, operation count, and workflow count. It does not call the target API. |
+| `discover` | `--config <path>` | Reads only configured local context, then prints a redacted, deterministic candidate report. It does not call the target API. |
 | `generate` | `--config <path>` | Compiles the contract-derived plan and writes the generated plan, Playwright test, and signed manifest. |
 | `run` | `--config <path>`, `--inject-stale-data` | Generates, executes, critiques, and, when policy permits, heals and reruns the suite. `loop` is an accepted alias for `run`. |
 | `report` | `<run-id-or-directory>`, `--config <path>` | Prints the saved `result.json`. A bare run ID is resolved beneath the configured `artifactsDir`. |
@@ -54,6 +55,40 @@ Paths are resolved relative to the directory containing the selected config file
 | `maxIterations` | No | `3` | Floored to an integer and clamped to at least `1`. |
 | `timeoutMs` | No | `30000` | Per-test timeout, clamped to at least `1000` milliseconds. |
 | `headersFromEnv` | No | `{}` | Maps lowercase HTTP header names to environment-variable names. Values never belong in config. |
+| `discovery` | No | Disabled | Bounded local source routing and scenario discovery. Omit it for contract-only planning. |
+
+### `discovery`
+
+| Field | Required | Default | Rules and effect |
+|---|---:|---:|---|
+| `enabled` | No | `sources.length > 0` | Enables local context discovery. |
+| `required` | No | `false` | With `true`, zero configured or matched sources fails closed. |
+| `sources` | No | `[]` | File/directory entries. A string means `kind: auto`; objects accept `id`, `path`, and `kind: auto|log|document`. Paths must remain beneath the config root. |
+| `allowedExtensions` | No | `.json,.jsonl,.log,.md,.txt,.yaml,.yml` | Exact extension allowlist. Binary data is still rejected. |
+| `maxFiles` | No | `100` | Maximum unique regular files after canonical-path deduplication. |
+| `maxFileBytes` | No | `5242880` | Per-file byte ceiling checked before parsing. |
+| `maxTotalBytes` | No | `26214400` | Aggregate byte ceiling across the corpus. |
+| `maxCandidates` | No | `5000` | Pre-deduplication signal ceiling; overflow fails instead of truncating. |
+| `maxCandidatesPerOperation` | No | `20` | Executable discovery expansion ceiling for one operation. |
+| `maxExcerptCharacters` | No | `512` | Deterministic redacted excerpt length stored with citations. |
+| `minimumConfidence` | No | `0.85` | `0..1` floor for executable consideration; lower-confidence signals remain report-only. |
+
+Each configured source appears in the source manifest. Missing sources, symlinks, path escapes, non-regular files, binary/NUL data, invalid UTF-8, unsupported extensions, mutation during read, and size/count overflow fail closed. Directories are traversed in sorted order with `.git`, `.gauntlet`, and `node_modules` excluded.
+
+Redaction precedes persistence and agent input. Credential headers/fields, bearer tokens, sensitive query values, emails, and customer-style IDs are replaced. Raw source contents are not copied to run evidence; artifacts retain hashes, source-relative locations, line spans, and redacted excerpts.
+
+#### Discovery dispositions
+
+| Disposition | Meaning | Execution effect |
+|---|---|---|
+| `generate` | Exact operation/status corroboration and a safe contract-derived input recipe exist. | Adds one case unless semantic deduplication finds an equivalent case. |
+| `merge` | Evidence matches an existing planner or discovery case. | Adds citations; does not add a redundant Playwright test. |
+| `report-only` | Evidence is incomplete, conflicting, undocumented, operational, oversized, or unsafe to reproduce. | Preserved for review and never executed. |
+| `reject` | Ambiguous or policy-denied evidence cannot be trusted. | Preserved with a reason and never executed. |
+
+V1 executable recipes are deliberately narrow: malformed JSON, unsupported media type, bounded query violations, and whitespace validation, each only when the applicable response is declared. Missing auth, not-found, and conflict signals merge into existing contract cases. Oversized payloads, undocumented endpoints, observed undeclared statuses, and unclassified prose remain report-only.
+
+Candidate IDs are based on normalized semantics, not timestamps, correlation IDs, absolute checkouts, or source order. Duplicate candidates preserve citations in stable path/line order. The planner signs final dispositions and the critic rechecks the report hash and current source bytes.
 
 ### `safety`
 
@@ -124,6 +159,7 @@ The planner is deterministic: the same normalized contract, config, and seed pro
 | `authorization` | The operation is secured and declares `401`. | `401` with configured credentials intentionally omitted. |
 | `not-found` | The operation has a path parameter and declares `404`. | `404` using a deterministic missing identifier. |
 | `conflict` | The operation has a request body and declares `409`. | `409`, normally using `x-gauntlet-conflict-value`. |
+| `discovered` | A high-confidence log/document signal has an exact operation match, declared response, and deterministic contract-derived input. | Declared OpenAPI status/content/schema; source evidence never supplies the oracle. |
 
 Each workflow becomes one serial Playwright test, even when it performs several requests. The request budget counts every workflow step.
 
@@ -150,7 +186,7 @@ The deterministic score totals 100 points:
 - 10: artifact integrity and contract hash match
 - 10: no forbidden test controls or invalid traceability
 
-Every blocking model finding subtracts 10 points, but score alone never passes a run. Zero tests, count mismatch, skips, target failure, contract assertion failure, artifact mismatch, forbidden `skip`/`only`/`fixme`, invalid traceability, or insufficient coverage remains blocking.
+Every blocking model finding subtracts 10 points, but score alone never passes a run. Zero tests, count mismatch, skips, target failure, contract assertion failure, artifact mismatch, forbidden `skip`/`only`/`fixme`, invalid traceability, or insufficient coverage remains blocking. Discovery additionally hard-fails on report hash mismatch, source drift or absence, secret leakage, executable candidates without citations/exact operation mapping, and assertions without active OpenAPI oracle provenance.
 
 ## Terminal statuses
 
@@ -167,6 +203,7 @@ Every blocking model finding subtracts 10 points, but score alone never passes a
 <artifactsDir>/<run-id>/
   run-manifest.json
   events.json
+  discovery/report.json
   plan.json
   generated-manifest.json
   agents/builder.json

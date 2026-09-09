@@ -15,17 +15,19 @@ export class RunLedger {
     this.runDir = path.join(config.artifactsDir, runId);
   }
 
-  async initialize(specHash: string): Promise<void> {
+  async initialize(specHash: string, discoveryHash?: string): Promise<void> {
     await mkdir(this.config.artifactsDir, { recursive: true });
     await mkdir(this.runDir, { recursive: false });
     let sourceRevision = 'uncommitted';
     try { sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* no commit yet */ }
+    const { projectRoot: _projectRoot, ...portableConfig } = this.config;
     await atomicWrite(path.join(this.runDir, 'run-manifest.json'), stableStringify({
       formatVersion: 1,
       runId: this.runId,
       projectName: this.config.projectName,
       specHash,
-      configHash: sha256(stableStringify(this.config)),
+      ...(discoveryHash ? { discoveryHash } : {}),
+      configHash: sha256(stableStringify(portableConfig)),
       sourceRevision,
       seed: this.config.seed,
       baseUrl: new URL(this.config.baseUrl).origin,

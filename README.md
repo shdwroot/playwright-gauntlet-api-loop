@@ -7,12 +7,14 @@ This is not a retry wrapper and it does not learn expectations from observed res
 ## What works
 
 - OpenAPI 3.0/3.1 YAML or JSON ingestion with local `$ref` resolution and duplicate-operation detection.
+- Bounded additional-source discovery from UTF-8 logs, JSON/JSONL, Markdown, text, and YAML documents, with exact OpenAPI corroboration and line-level provenance.
 - Stable positive, validation, boundary, authorization, not-found, conflict, and multi-step workflow cases.
 - Deterministic data and generated test bytes from a fixed seed.
 - Separate lead, builder, executor, critic, and healer roles.
 - Offline deterministic agents by default; optional separate OpenAI builder and critic calls.
 - JSON, JUnit, HTML, trace, request/response, event-ledger, manifest, critic, and healing evidence.
 - Secret redaction, host/method/request budgets, destructive-operation policy, iteration limits, and repetition stopping.
+- Explicit discovery dispositions (`generate`, `merge`, `report-only`, `reject`) so low-confidence, conflicting, undocumented, or unsafe evidence remains visible without becoming a test.
 - Self-healing restricted to generated artifacts. Real API failures are reported and left red.
 
 ## Quick start
@@ -29,11 +31,12 @@ npm run demo
 
 ## Training course
 
-New to the framework? Start with the [20-minute crash course](training/README.md), then work through the three runnable walkthroughs:
+New to the framework? Start with the [20-minute crash course](training/README.md), then work through the four runnable walkthroughs:
 
 1. [Run the inventory gauntlet by hand](training/walkthroughs/01-first-run.md)
 2. [Distinguish generated drift from a real API defect](training/walkthroughs/02-evidence-and-healing.md)
 3. [Test your own API](training/walkthroughs/03-bring-your-own-api.md)
+4. [Discover scenarios from logs and documents](training/walkthroughs/04-context-discovery.md)
 
 The course includes a separate five-operation [inventory API](training/example-project/inventory-api.mjs), its [OpenAPI contract](training/example-project/openapi.yaml), a safe loopback [configuration](training/example-project/gauntlet.config.json), and an automated regression test. Run the complete example with:
 
@@ -69,6 +72,14 @@ npm run gauntlet -- report <run-id>
 3. Keep secrets in environment variables and map only their names in `headersFromEnv`.
 4. Allowlist the exact host and methods. Leave production and destructive access disabled unless deliberately required.
 5. Run `npm run gauntlet -- generate`, review the signed plan, then run `npm run gauntlet -- run`.
+
+To add operational context, configure local sources under `discovery.sources` and run the read-only discovery route first:
+
+```bash
+npm run gauntlet -- discover
+```
+
+The report records source hashes, redacted excerpts, exact lines, OpenAPI pointers, confidence, and dispositions. Logs and documents are untrusted hints: they may select a contract-backed case, but cannot invent an endpoint or replace an OpenAPI expected status. Review `report-only` contract gaps and conflicts separately.
 
 The CLI returns `0` only for a hard-gate pass, `1` for a test/framework failure, `2` for blocked or stalled, and `3` for configuration/runtime errors.
 

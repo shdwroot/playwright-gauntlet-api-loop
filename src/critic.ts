@@ -10,7 +10,7 @@ import type {
   NormalizedContract,
   TestPlan,
 } from './types.js';
-import { sha256, stableStringify } from './utils.js';
+import { ensureWithin, sha256, stableStringify } from './utils.js';
 import { verifyGeneratedArtifacts } from './generator.js';
 
 function finding(code: string, message: string, evidence: string[], repair: CriticFinding['repair'] = 'none'): CriticFinding {
@@ -72,13 +72,72 @@ export class CriticAgent {
     if (plan.cases.some((testCase) => !testCase.sourcePointer.startsWith('/paths/'))) {
       findings.push(finding('TRACEABILITY_INVALID', 'At least one case lacks an OpenAPI source pointer.', ['plan.generated.json'], 'regenerate-artifacts'));
     }
+    const invalidOracle = [...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)].filter((testCase) =>
+      testCase.oracleProvenance.length === 0
+      || testCase.oracleProvenance.some((oracle) => oracle.authority !== 'openapi' || oracle.specHash !== contract.specHash || !oracle.sourcePointer.startsWith('/paths/')),
+    );
+    if (invalidOracle.length) {
+      findings.push(finding('ORACLE_PROVENANCE_INVALID', 'Every executable assertion must cite the active OpenAPI contract.', invalidOracle.map((item) => item.id), 'regenerate-artifacts'));
+    }
+    const undeclaredExpectations = [...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)].filter((testCase) => {
+      const operation = contract.operations.find((item) => item.operationId === testCase.operationId);
+      return !operation || testCase.expected.statuses.some((status) => !operation.responses.some((response) => response.status === status));
+    });
+    if (undeclaredExpectations.length) {
+      findings.push(finding('ORACLE_EXPECTATION_UNDECLARED', 'At least one executable expected status is absent from its OpenAPI operation.', undeclaredExpectations.map((item) => item.id), 'regenerate-artifacts'));
+    }
+    if (plan.discovery) {
+      const { discoveryHash: _signedDiscoveryHash, ...unsignedDiscovery } = plan.discovery;
+      const recomputedDiscoveryHash = sha256(stableStringify(unsignedDiscovery));
+      if (recomputedDiscoveryHash !== plan.discovery.discoveryHash) {
+        findings.push(finding('DISCOVERY_REPORT_INTEGRITY_FAILED', 'Discovery content does not match its signed hash.', [plan.discovery.discoveryHash, recomputedDiscoveryHash], 'regenerate-artifacts'));
+      }
+      if (manifest.discoveryHash !== plan.discovery.discoveryHash) {
+        findings.push(finding('DISCOVERY_HASH_MISMATCH', 'The manifest does not sign the active discovery report.', [String(manifest.discoveryHash), plan.discovery.discoveryHash], 'regenerate-artifacts'));
+      }
+      const sourceLineCounts = new Map<string, number>();
+      for (const source of plan.discovery.sources) {
+        try {
+          const sourcePath = ensureWithin(config.projectRoot, path.resolve(config.projectRoot, source.sourcePath));
+          const contents = await readFile(sourcePath);
+          const actual = sha256(contents);
+          if (actual !== source.sourceHash) findings.push(finding('SOURCE_CHANGED', `Discovery source changed after planning: ${source.sourcePath}`, [source.sourceHash, actual]));
+          sourceLineCounts.set(source.id, contents.toString('utf8').replace(/^\uFEFF/, '').split(/\r?\n/).length);
+        } catch {
+          findings.push(finding('SOURCE_MISSING', `Discovery source is unavailable after planning: ${source.sourcePath}`, [source.sourceHash]));
+        }
+      }
+      const snapshots = new Map(plan.discovery.sources.map((source) => [source.id, source]));
+      const executableCandidateIds = new Set(plan.cases.flatMap((testCase) => testCase.discovery?.candidateIds ?? []));
+      for (const candidate of plan.discovery.candidates) {
+        if ((candidate.disposition === 'generate' || candidate.disposition === 'merge') && candidate.evidence.length === 0) {
+          findings.push(finding('DISCOVERY_CITATION_MISSING', `Executable discovery candidate ${candidate.id} lacks evidence.`, [candidate.id], 'regenerate-artifacts'));
+        }
+        if ((candidate.disposition === 'generate' || candidate.disposition === 'merge') && !candidate.operationId) {
+          findings.push(finding('DISCOVERY_OPERATION_UNMATCHED', `Executable discovery candidate ${candidate.id} lacks an exact operation mapping.`, [candidate.id], 'regenerate-artifacts'));
+        }
+        if ((candidate.disposition === 'generate' || candidate.disposition === 'merge') && !executableCandidateIds.has(candidate.id)) {
+          findings.push(finding('DISCOVERY_PLAN_GAP', `Accepted discovery candidate ${candidate.id} is absent from the executable plan.`, [candidate.id], 'regenerate-artifacts'));
+        }
+        for (const evidence of candidate.evidence) {
+          const source = snapshots.get(evidence.sourceId);
+          const lines = sourceLineCounts.get(evidence.sourceId) ?? 0;
+          if (!source || source.sourcePath !== evidence.sourcePath || source.sourceHash !== evidence.sourceHash
+            || evidence.lineStart < 1 || evidence.lineEnd < evidence.lineStart || evidence.lineEnd > lines) {
+            findings.push(finding('INVALID_SOURCE_CITATION', `Discovery citation for ${candidate.id} cannot be verified.`, [evidence.sourceId, evidence.sourcePath, `${evidence.lineStart}-${evidence.lineEnd}`], 'regenerate-artifacts'));
+          }
+        }
+      }
+      const leaked = stableStringify(plan.discovery).match(/Bearer\s+(?!\[REDACTED_TOKEN\])[A-Za-z0-9._~+\/-]{8,}|(?:api[_-]?key|password|client[_-]?secret)\s*[:=]\s*(?!\[REDACTED\])\S+/i);
+      if (leaked) findings.push(finding('DISCOVERY_SECRET_LEAK', 'A discovery artifact appears to contain an unredacted credential.', [leaked[0]]));
+    }
 
     const deterministicScore = Math.round(
       (execution.status === 'passed' && execution.failed === 0 ? 40 : 0)
       + coverage * 25
       + (execution.tests === expectedTests && execution.tests > 0 && execution.skipped === 0 ? 15 : 0)
       + (integrity.valid && manifest.specHash === contract.specHash ? 10 : 0)
-      + (!findings.some((item) => ['FORBIDDEN_TEST_CONTROL', 'TRACEABILITY_INVALID'].includes(item.code)) ? 10 : 0),
+      + (!findings.some((item) => ['FORBIDDEN_TEST_CONTROL', 'TRACEABILITY_INVALID', 'ORACLE_PROVENANCE_INVALID', 'ORACLE_EXPECTATION_UNDECLARED', 'DISCOVERY_HASH_MISMATCH', 'DISCOVERY_SECRET_LEAK', 'INVALID_SOURCE_CITATION'].includes(item.code)) ? 10 : 0),
     );
     const criticInput = {
       immutableTarget: {

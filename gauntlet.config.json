@@ -10,6 +10,22 @@
   "headersFromEnv": {
     "x-api-key": "SAMPLE_API_KEY"
   },
+  "discovery": {
+    "enabled": true,
+    "required": true,
+    "sources": [
+      { "id": "sample-system-log", "path": "context/sample-system.log", "kind": "log" },
+      { "id": "scenario-guidance", "path": "context/scenario-guidance.md", "kind": "document" }
+    ],
+    "allowedExtensions": [".json", ".jsonl", ".log", ".md", ".txt", ".yaml", ".yml"],
+    "maxFiles": 100,
+    "maxFileBytes": 5242880,
+    "maxTotalBytes": 26214400,
+    "maxCandidates": 5000,
+    "maxCandidatesPerOperation": 20,
+    "maxExcerptCharacters": 512,
+    "minimumConfidence": 0.85
+  },
   "safety": {
     "allowedHosts": ["127.0.0.1", "localhost"],
     "allowedMethods": ["GET", "POST", "DELETE"],

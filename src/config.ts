@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { GauntletConfig, HttpMethod } from './types.js';
+import type { DiscoverySourceConfig, GauntletConfig, HttpMethod } from './types.js';
 import { ensureWithin } from './utils.js';
 
 const HTTP_METHODS = new Set<HttpMethod>(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
@@ -21,6 +21,60 @@ function finiteNumber(record: Record<string, unknown>, key: string, fallback: nu
   const value = record[key] ?? fallback;
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`CONFIG_INVALID: ${key} must be a finite number`);
   return value;
+}
+
+function positiveInteger(record: Record<string, unknown>, key: string, fallback: number): number {
+  return Math.max(1, Math.floor(finiteNumber(record, key, fallback)));
+}
+
+function discoveryConfig(raw: Record<string, unknown>, root: string): GauntletConfig['discovery'] {
+  const value = raw.discovery;
+  if (value === undefined) {
+    return {
+      enabled: false, required: false, sources: [],
+      allowedExtensions: ['.json', '.jsonl', '.log', '.md', '.txt', '.yaml', '.yml'],
+      maxFiles: 100, maxFileBytes: 5_242_880, maxTotalBytes: 26_214_400,
+      maxCandidates: 5_000, maxCandidatesPerOperation: 20,
+      maxExcerptCharacters: 512, minimumConfidence: 0.85,
+    };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('CONFIG_INVALID: discovery must be an object');
+  const record = value as Record<string, unknown>;
+  const sourcesRaw = record.sources ?? [];
+  if (!Array.isArray(sourcesRaw)) throw new Error('CONFIG_INVALID: discovery.sources must be an array');
+  const sources: DiscoverySourceConfig[] = sourcesRaw.map((entry, index) => {
+    if (typeof entry === 'string') {
+      return { id: `source-${index + 1}`, path: ensureWithin(root, path.resolve(root, entry)), kind: 'auto' };
+    }
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error(`CONFIG_INVALID: discovery.sources[${index}] must be a string or object`);
+    const source = entry as Record<string, unknown>;
+    const sourcePath = requireString(source, 'path');
+    const kind = source.kind ?? 'auto';
+    if (kind !== 'auto' && kind !== 'log' && kind !== 'document') throw new Error(`CONFIG_INVALID: discovery.sources[${index}].kind must be auto, log, or document`);
+    return {
+      id: typeof source.id === 'string' && source.id.trim() ? source.id : `source-${index + 1}`,
+      path: ensureWithin(root, path.resolve(root, sourcePath)),
+      kind,
+    };
+  });
+  if (new Set(sources.map((source) => source.id)).size !== sources.length) throw new Error('CONFIG_INVALID: discovery source ids must be unique');
+  const extensionRaw = record.allowedExtensions ?? ['.json', '.jsonl', '.log', '.md', '.txt', '.yaml', '.yml'];
+  if (!Array.isArray(extensionRaw) || extensionRaw.some((entry) => typeof entry !== 'string')) throw new Error('CONFIG_INVALID: discovery.allowedExtensions must be strings');
+  const minimumConfidence = finiteNumber(record, 'minimumConfidence', 0.85);
+  if (minimumConfidence < 0 || minimumConfidence > 1) throw new Error('CONFIG_INVALID: discovery.minimumConfidence must be between 0 and 1');
+  return {
+    enabled: Boolean(record.enabled ?? sources.length > 0),
+    required: Boolean(record.required),
+    sources,
+    allowedExtensions: (extensionRaw as string[]).map((entry) => entry.startsWith('.') ? entry.toLowerCase() : `.${entry.toLowerCase()}`),
+    maxFiles: positiveInteger(record, 'maxFiles', 100),
+    maxFileBytes: positiveInteger(record, 'maxFileBytes', 5_242_880),
+    maxTotalBytes: positiveInteger(record, 'maxTotalBytes', 26_214_400),
+    maxCandidates: positiveInteger(record, 'maxCandidates', 5_000),
+    maxCandidatesPerOperation: positiveInteger(record, 'maxCandidatesPerOperation', 20),
+    maxExcerptCharacters: positiveInteger(record, 'maxExcerptCharacters', 512),
+    minimumConfidence,
+  };
 }
 
 export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{ config: GauntletConfig; configPath: string }> {
@@ -45,6 +99,7 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
   if (provider !== 'deterministic' && provider !== 'openai') throw new Error('CONFIG_INVALID: agents.provider must be deterministic or openai');
 
   const config: GauntletConfig = {
+    projectRoot: root,
     projectName: requireString(raw, 'projectName'),
     spec: ensureWithin(root, path.resolve(root, requireString(raw, 'spec'))),
     baseUrl: requireString(raw, 'baseUrl'),
@@ -76,7 +131,11 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
       minimumScore: Math.min(100, Math.max(0, finiteNumber(qualityRaw, 'minimumScore', 95))),
       minimumOperationCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumOperationCoverage', 1))),
     },
+    discovery: discoveryConfig(raw, root),
   };
+  if (config.discovery.enabled && config.discovery.sources.length === 0 && config.discovery.required) {
+    throw new Error('NO_DISCOVERY_SOURCES_CONFIGURED');
+  }
   validateTarget(config);
   return { config, configPath: absoluteConfig };
 }

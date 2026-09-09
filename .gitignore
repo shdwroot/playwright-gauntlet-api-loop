@@ -2,8 +2,10 @@
 .DS_Store
 dist/
 .gauntlet/
+.gstack/
 playwright-report/
 test-results/
 *.log
+!context/*.log
 .env
 *.local

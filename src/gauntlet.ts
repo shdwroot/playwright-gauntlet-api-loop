@@ -9,6 +9,7 @@ import { healGeneratedArtifacts, injectStaleGeneratedData } from './healer.js';
 import { newRunId, RunLedger } from './evidence.js';
 import { runPlaywright } from './runner.js';
 import { sha256, stableStringify } from './utils.js';
+import { discoverScenarios } from './discovery.js';
 
 export interface RunOptions {
   configPath?: string;
@@ -19,16 +20,18 @@ export interface RunOptions {
 export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> {
   const { config } = await loadConfig(options.configPath);
   const contract = await loadContract(config.spec);
+  const discovery = await discoverScenarios(contract, config);
   const runId = options.runId ?? newRunId();
   const ledger = new RunLedger(runId, config);
-  await ledger.initialize(contract.specHash);
-  await ledger.record('DISCOVER', 0, `Loaded ${contract.operations.length} operations from ${contract.title}`);
+  await ledger.initialize(contract.specHash, discovery.discoveryHash);
+  await ledger.write('discovery/report.json', discovery);
+  await ledger.record('DISCOVER', 0, `Loaded ${contract.operations.length} operations and ${discovery.candidates.length} additional-source candidates from ${discovery.sourceCount} sources`);
 
   const provider = createAgentProvider(config.agents);
   const builder = new BuilderAgent(provider);
   const critic = new CriticAgent(provider);
   await ledger.record('PLAN', 0, 'Builder agent compiling a typed, contract-derived test plan');
-  const built = await builder.build(contract, config);
+  const built = await builder.build(contract, config, [], config.discovery.enabled ? discovery : undefined);
   await ledger.write('agents/builder.json', built.invocation);
   const trustedPlan = built.plan;
   await ledger.write('plan.json', trustedPlan);
@@ -108,8 +111,15 @@ export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> 
 export async function generateOnly(configPath?: string): Promise<{ manifestPath: string; cases: number; workflows: number }> {
   const { config } = await loadConfig(configPath);
   const contract = await loadContract(config.spec);
+  const discovery = await discoverScenarios(contract, config);
   const provider = createAgentProvider(config.agents);
-  const { plan } = await new BuilderAgent(provider).build(contract, config);
+  const { plan } = await new BuilderAgent(provider).build(contract, config, [], config.discovery.enabled ? discovery : undefined);
   const manifest = await generateArtifacts(plan, config);
   return { manifestPath: path.join(config.generatedDir, 'manifest.json'), cases: manifest.caseCount, workflows: manifest.workflowCount };
+}
+
+export async function discoverOnly(configPath?: string) {
+  const { config } = await loadConfig(configPath);
+  const contract = await loadContract(config.spec);
+  return discoverScenarios(contract, config);
 }

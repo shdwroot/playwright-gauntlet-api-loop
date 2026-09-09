@@ -1,0 +1,7 @@
+2030-01-02T03:04:05Z requestId=r1 method=POST path=/users status=400 error="malformed JSON"
+2030-01-02T03:04:06Z requestId=r2 method=POST path=/users status=415 content-type=text/plain
+2030-01-02T03:04:07Z requestId=r3 method=GET path=/users?limit=0 status=400 error="query minimum boundary"
+2030-01-02T03:04:08Z requestId=r4 method=GET path=/users/usr_9999 status=404
+2030-01-02T03:04:09Z requestId=r5 method=POST path=/users status=500 note="valid request unexpectedly failed"
+2030-01-02T03:04:10Z requestId=r6 method=GET path=/internal/diagnostics status=200
+2030-01-02T03:04:11Z level=error Authorization: Bearer sample-super-secret-token-1234567890 email=private@example.test customer_id=customer_837492

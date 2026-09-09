@@ -89,7 +89,88 @@ export interface NormalizedContract {
   warnings: string[];
 }
 
-export type CaseKind = 'positive' | 'boundary' | 'validation' | 'authorization' | 'not-found' | 'conflict';
+export type CaseKind = 'positive' | 'boundary' | 'validation' | 'authorization' | 'not-found' | 'conflict' | 'discovered';
+
+export type DiscoverySourceKind = 'auto' | 'log' | 'document';
+export type DiscoverySignal =
+  | 'malformed-json'
+  | 'unsupported-media-type'
+  | 'query-boundary'
+  | 'whitespace-validation'
+  | 'missing-auth'
+  | 'not-found'
+  | 'conflict'
+  | 'oversized-payload'
+  | 'contract-violation'
+  | 'unclassified';
+export type DiscoveryDisposition = 'generate' | 'merge' | 'report-only' | 'reject';
+
+export interface DiscoverySourceConfig {
+  id: string;
+  path: string;
+  kind: DiscoverySourceKind;
+}
+
+export interface DiscoveryConfig {
+  enabled: boolean;
+  required: boolean;
+  sources: DiscoverySourceConfig[];
+  allowedExtensions: string[];
+  maxFiles: number;
+  maxFileBytes: number;
+  maxTotalBytes: number;
+  maxCandidates: number;
+  maxCandidatesPerOperation: number;
+  maxExcerptCharacters: number;
+  minimumConfidence: number;
+}
+
+export interface DiscoveryEvidence {
+  sourceId: string;
+  sourcePath: string;
+  sourceHash: string;
+  lineStart: number;
+  lineEnd: number;
+  excerpt: string;
+}
+
+export interface DiscoveryCandidate {
+  id: string;
+  signal: DiscoverySignal;
+  method?: HttpMethod;
+  observedPath?: string;
+  observedStatus?: number;
+  operationId?: string;
+  confidence: number;
+  disposition: DiscoveryDisposition;
+  reason: string;
+  contractPointers: string[];
+  evidence: DiscoveryEvidence[];
+}
+
+export interface DiscoverySourceSnapshot {
+  id: string;
+  configuredPath: string;
+  sourcePath: string;
+  sourceHash: string;
+  bytes: number;
+  kind: Exclude<DiscoverySourceKind, 'auto'>;
+  parserVersion: string;
+  status: 'parsed' | 'warning' | 'rejected';
+  findings: string[];
+}
+
+export interface DiscoveryReport {
+  formatVersion: 1;
+  specHash: string;
+  discoveryHash: string;
+  sourceCount: number;
+  totalBytes: number;
+  sources: DiscoverySourceSnapshot[];
+  candidates: DiscoveryCandidate[];
+  warnings: string[];
+  redactionCount: number;
+}
 
 export interface ExpectedResponse {
   statuses: number[];
@@ -109,10 +190,21 @@ export interface TestCasePlan {
   query: Record<string, unknown>;
   headers: Record<string, string>;
   body?: unknown;
+  rawBody?: string;
   useAuth: boolean;
   destructive: boolean;
   expected: ExpectedResponse;
   rationale: string;
+  discovery?: {
+    signal: DiscoverySignal;
+    candidateIds: string[];
+    evidence: DiscoveryEvidence[];
+  };
+  oracleProvenance: Array<{
+    authority: 'openapi';
+    specHash: string;
+    sourcePointer: string;
+  }>;
 }
 
 export interface WorkflowStepPlan extends TestCasePlan {
@@ -140,6 +232,7 @@ export interface TestPlan {
   cases: TestCasePlan[];
   workflows: WorkflowPlan[];
   warnings: string[];
+  discovery?: DiscoveryReport;
 }
 
 export interface AgentConfig {
@@ -151,6 +244,7 @@ export interface AgentConfig {
 }
 
 export interface GauntletConfig {
+  projectRoot: string;
   projectName: string;
   spec: string;
   baseUrl: string;
@@ -173,6 +267,7 @@ export interface GauntletConfig {
     minimumScore: number;
     minimumOperationCoverage: number;
   };
+  discovery: DiscoveryConfig;
 }
 
 export interface GeneratedManifest {
@@ -186,6 +281,7 @@ export interface GeneratedManifest {
   caseCount: number;
   workflowCount: number;
   operationCount: number;
+  discoveryHash?: string;
   files: Record<string, string>;
 }
 

@@ -1,5 +1,7 @@
 import type {
   GauntletConfig,
+  DiscoveryCandidate,
+  DiscoveryReport,
   JsonSchema,
   NormalizedContract,
   NormalizedOperation,
@@ -7,7 +9,7 @@ import type {
   TestPlan,
   WorkflowPlan,
 } from './types.js';
-import { shortId } from './utils.js';
+import { sha256, shortId, stableStringify } from './utils.js';
 
 type SampleMode = 'valid' | 'boundary' | 'invalid' | 'conflict';
 
@@ -115,6 +117,7 @@ function buildInputs(operation: NormalizedOperation, seed: number, mode: SampleM
 
 function makeCase(
   operation: NormalizedOperation,
+  specHash: string,
   seed: number,
   kind: TestCasePlan['kind'],
   statuses: number[],
@@ -135,6 +138,10 @@ function makeCase(
     destructive: operation.destructive,
     expected: responseFor(operation, statuses),
     rationale,
+    oracleProvenance: [
+      { authority: 'openapi', specHash, sourcePointer: operation.sourcePointer },
+      ...operation.responses.filter((response) => statuses.includes(response.status)).map((response) => ({ authority: 'openapi' as const, specHash, sourcePointer: response.sourcePointer })),
+    ],
   };
 }
 
@@ -144,7 +151,61 @@ function allowed(operation: NormalizedOperation, config: GauntletConfig): string
   return undefined;
 }
 
-export function buildPlan(contract: NormalizedContract, config: GauntletConfig): TestPlan {
+function discoveryCase(operation: NormalizedOperation, contract: NormalizedContract, config: GauntletConfig, candidate: DiscoveryCandidate): TestCasePlan | undefined {
+  if (candidate.disposition !== 'generate' || candidate.observedStatus === undefined) return undefined;
+  const planned = makeCase(
+    operation,
+    contract.specHash,
+    config.seed,
+    'discovered',
+    [candidate.observedStatus],
+    'valid',
+    `Additional-source signal ${candidate.signal}; status and schema remain OpenAPI-derived`,
+    candidate.id,
+  );
+  planned.discovery = { signal: candidate.signal, candidateIds: [candidate.id], evidence: candidate.evidence };
+  if (candidate.signal === 'malformed-json') {
+    planned.headers['content-type'] = 'application/json';
+    delete planned.body;
+    planned.rawBody = '{"broken":';
+  } else if (candidate.signal === 'unsupported-media-type') {
+    planned.headers['content-type'] = 'text/plain';
+    delete planned.body;
+    planned.rawBody = 'synthetic-gauntlet-unsupported-body';
+  } else if (candidate.signal === 'query-boundary') {
+    const parameter = operation.parameters.find((item) => item.in === 'query' && (item.schema.minimum !== undefined || item.schema.maximum !== undefined));
+    if (!parameter) return undefined;
+    planned.query[parameter.name] = parameter.schema.maximum !== undefined ? parameter.schema.maximum + 1 : (parameter.schema.minimum as number) - 1;
+  } else if (candidate.signal === 'whitespace-validation') {
+    const property = Object.entries(operation.requestBody?.schema.properties ?? {}).find(([, schema]) => {
+      const type = Array.isArray(schema.type) ? schema.type : [schema.type];
+      return type.includes('string') && (schema.minLength ?? 0) > 0;
+    });
+    if (!property || !planned.body || typeof planned.body !== 'object' || Array.isArray(planned.body)) return undefined;
+    planned.body = { ...(planned.body as Record<string, unknown>), [property[0]]: '   ' };
+  } else {
+    return undefined;
+  }
+  return planned;
+}
+
+function requestIdentity(testCase: TestCasePlan): string {
+  return JSON.stringify({
+    operationId: testCase.operationId,
+    method: testCase.method,
+    path: testCase.path,
+    pathParams: testCase.pathParams,
+    query: testCase.query,
+    headers: testCase.headers,
+    body: testCase.body,
+    rawBody: testCase.rawBody,
+    useAuth: testCase.useAuth,
+    statuses: testCase.expected.statuses,
+  });
+}
+
+export function buildPlan(contract: NormalizedContract, config: GauntletConfig, discovery?: DiscoveryReport): TestPlan {
+  const planDiscovery = discovery ? structuredClone(discovery) : undefined;
   const cases: TestCasePlan[] = [];
   const operationCoverage = new Map<string, string[]>();
   const blocked = new Map<string, string>();
@@ -165,25 +226,25 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig):
       cases.push(testCase);
       operationCoverage.get(operation.operationId)!.push(testCase.id);
     };
-    add(makeCase(operation, config.seed, 'positive', success, 'valid', 'Valid schema-derived request must satisfy a declared success contract'));
+    add(makeCase(operation, contract.specHash, config.seed, 'positive', success, 'valid', 'Valid schema-derived request must satisfy a declared success contract'));
 
     const validation = operation.responses.find((response) => response.status === 422)
       ?? operation.responses.find((response) => response.status === 400);
     const hasConstraint = Boolean(operation.requestBody?.schema.required?.length)
       || operation.parameters.some((parameter) => parameter.required || parameter.schema.minimum !== undefined || parameter.schema.maximum !== undefined);
     if (validation && hasConstraint) {
-      add(makeCase(operation, config.seed, 'validation', [validation.status], 'invalid', 'Malformed or incomplete required input must satisfy the declared validation contract'));
+      add(makeCase(operation, contract.specHash, config.seed, 'validation', [validation.status], 'invalid', 'Malformed or incomplete required input must satisfy the declared validation contract'));
     }
     if (operation.requestBody && (operation.requestBody.schema.maxLength !== undefined || operation.requestBody.schema.properties)) {
-      add(makeCase(operation, config.seed, 'boundary', success, 'boundary', 'Constraint boundary values must remain valid'));
+      add(makeCase(operation, contract.specHash, config.seed, 'boundary', success, 'boundary', 'Constraint boundary values must remain valid'));
     }
     if (operation.secured) {
       const unauthorized = operation.responses.find((response) => response.status === 401);
-      if (unauthorized) add(makeCase(operation, config.seed, 'authorization', [401], 'valid', 'Missing credentials must be rejected by the declared security contract'));
+      if (unauthorized) add(makeCase(operation, contract.specHash, config.seed, 'authorization', [401], 'valid', 'Missing credentials must be rejected by the declared security contract'));
     }
     const notFound = operation.responses.find((response) => response.status === 404);
     if (notFound && operation.parameters.some((parameter) => parameter.in === 'path')) {
-      const notFoundCase = makeCase(operation, config.seed, 'not-found', [404], 'valid', 'Unknown resource identity must satisfy the declared not-found contract');
+      const notFoundCase = makeCase(operation, contract.specHash, config.seed, 'not-found', [404], 'valid', 'Unknown resource identity must satisfy the declared not-found contract');
       for (const parameter of operation.parameters.filter((candidate) => candidate.in === 'path')) {
         notFoundCase.pathParams[parameter.name] = parameter.schema.type === 'integer' ? 999_999 : `missing-${shortId(parameter.name)}`;
       }
@@ -191,7 +252,7 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig):
     }
     const conflict = operation.responses.find((response) => response.status === 409);
     if (conflict && operation.requestBody) {
-      add(makeCase(operation, config.seed, 'conflict', [409], 'conflict', 'Known duplicate input must satisfy the declared conflict contract'));
+      add(makeCase(operation, contract.specHash, config.seed, 'conflict', [409], 'conflict', 'Known duplicate input must satisfy the declared conflict contract'));
     }
   }
 
@@ -201,7 +262,7 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig):
       const denied = allowed(operation, config);
       if (denied) throw new Error(`WORKFLOW_DENIED: ${definition.id}/${operation.operationId}: ${denied}`);
       const success = operation.responses.filter((response) => response.status >= 200 && response.status < 300).map((response) => response.status);
-      const planned = makeCase(operation, config.seed, 'positive', success, 'valid', `Workflow step ${index + 1} preserves the declared state transition`, `${definition.id}-${index}`);
+      const planned = makeCase(operation, contract.specHash, config.seed, 'positive', success, 'valid', `Workflow step ${index + 1} preserves the declared state transition`, `${definition.id}-${index}`);
       planned.id = `${definition.id}-${index + 1}-${operation.operationId}`;
       planned.title = `${definition.title}: ${operation.operationId}`;
       if (step.pathParams) planned.pathParams = { ...planned.pathParams, ...step.pathParams };
@@ -212,6 +273,55 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig):
     });
     return { id: definition.id, title: definition.title, steps };
   });
+
+  if (planDiscovery) {
+    for (const candidate of planDiscovery.candidates) {
+      if (!candidate.operationId) continue;
+      const operation = contract.operations.find((item) => item.operationId === candidate.operationId);
+      if (!operation || allowed(operation, config)) {
+        if (candidate.disposition === 'generate') {
+          candidate.disposition = 'reject';
+          candidate.reason = 'Existing safety policy denies this operation.';
+        }
+        continue;
+      }
+      const baselineMatch = cases.find((testCase) => testCase.operationId === operation.operationId
+        && testCase.expected.statuses.includes(candidate.observedStatus ?? -1)
+        && ((candidate.signal === 'missing-auth' && testCase.kind === 'authorization')
+          || (candidate.signal === 'not-found' && testCase.kind === 'not-found')
+          || (candidate.signal === 'conflict' && testCase.kind === 'conflict')));
+      if (baselineMatch) {
+        candidate.disposition = 'merge';
+        candidate.reason = `Merged with existing contract-derived case ${baselineMatch.id}.`;
+        baselineMatch.discovery = {
+          signal: candidate.signal,
+          candidateIds: [...new Set([...(baselineMatch.discovery?.candidateIds ?? []), candidate.id])].sort(),
+          evidence: [...(baselineMatch.discovery?.evidence ?? []), ...candidate.evidence]
+            .sort((a, b) => a.sourcePath.localeCompare(b.sourcePath) || a.lineStart - b.lineStart),
+        };
+        continue;
+      }
+      const proposed = discoveryCase(operation, contract, config, candidate);
+      if (!proposed) {
+        if (candidate.disposition === 'generate') {
+          candidate.disposition = 'report-only';
+          candidate.reason = 'The contract does not provide enough structure to synthesize this input deterministically.';
+        }
+        continue;
+      }
+      const duplicate = cases.find((testCase) => requestIdentity(testCase) === requestIdentity(proposed));
+      if (duplicate) {
+        candidate.disposition = 'merge';
+        candidate.reason = `Semantically merged with existing case ${duplicate.id}.`;
+        if (proposed.discovery) duplicate.discovery = proposed.discovery;
+      } else {
+        cases.push(proposed);
+        operationCoverage.get(operation.operationId)!.push(proposed.id);
+      }
+    }
+    const { discoveryHash: _previousHash, ...unsignedDiscovery } = planDiscovery;
+    planDiscovery.discoveryHash = sha256(stableStringify(unsignedDiscovery));
+  }
 
   const plannedRequests = cases.length + workflows.reduce((count, workflow) => count + workflow.steps.length, 0);
   if (plannedRequests > config.safety.maxRequestsPerRun) {
@@ -233,5 +343,6 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig):
     cases,
     workflows,
     warnings: [...contract.warnings],
+    ...(planDiscovery ? { discovery: planDiscovery } : {}),
   };
 }

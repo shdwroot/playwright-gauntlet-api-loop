@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { generateOnly, runGauntlet } from './gauntlet.js';
+import { discoverOnly, generateOnly, runGauntlet } from './gauntlet.js';
 import { loadConfig } from './config.js';
 import { loadContract } from './openapi.js';
 import { errorMessage } from './utils.js';
@@ -16,6 +16,7 @@ function usage(): void {
 
 Usage:
   api-gauntlet doctor [--config path]
+  api-gauntlet discover [--config path]
   api-gauntlet generate [--config path]
   api-gauntlet run [--config path] [--inject-stale-data]
   api-gauntlet report <run-id-or-directory> [--config path]
@@ -35,6 +36,10 @@ async function main(): Promise<void> {
     const { config } = await loadConfig(configPath);
     const contract = await loadContract(config.spec);
     console.log(JSON.stringify({ ok: true, project: config.projectName, target: config.baseUrl, specHash: contract.specHash, operations: contract.operations.length, workflows: contract.workflows.length }, null, 2));
+    return;
+  }
+  if (command === 'discover') {
+    console.log(JSON.stringify(await discoverOnly(configPath), null, 2));
     return;
   }
   if (command === 'generate') {

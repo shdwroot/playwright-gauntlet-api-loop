@@ -33,10 +33,9 @@ You have already exercised five API operations, 12 standalone cases, and one thr
 ## Step 2: Learn the five-part mental model
 
 ```text
-OpenAPI contract
-      │
-      ▼
-deterministic plan ──► signed generated Playwright tests
+OpenAPI contract ───────────────┐
+                               ▼
+optional logs/documents ─► corroboration ─► deterministic plan ─► signed Playwright tests
                               │
                               ▼
                       real HTTP execution
@@ -50,7 +49,7 @@ deterministic plan ──► signed generated Playwright tests
 ```
 
 1. **Contract**: the OpenAPI file is the oracle, meaning the source of expected paths, inputs, statuses, and schemas.
-2. **Plan**: the builder compiles positive and negative cases from that contract. A fixed seed keeps the plan repeatable.
+2. **Discovery and plan**: optional logs/documents suggest scenarios; the router redacts, maps, deduplicates, and quarantines them before the builder compiles contract-backed cases. A fixed seed keeps the plan repeatable.
 3. **Execution**: Playwright's HTTP client sends real requests and records exchanges, reports, and traces.
 4. **Critique**: the critic checks hard evidence. A score cannot excuse zero tests, skips, missing coverage, or a contract failure.
 5. **Healing**: the healer can restore generated files from the trusted plan. It cannot rewrite the contract or application to make a failure disappear.
@@ -87,8 +86,9 @@ The generated directory and run evidence are ignored by Git. Regenerate them ins
 1. [Walkthrough 1: your first manual run](walkthroughs/01-first-run.md)
 2. [Walkthrough 2: evidence and safe healing](walkthroughs/02-evidence-and-healing.md)
 3. [Walkthrough 3: bring your own API](walkthroughs/03-bring-your-own-api.md)
-4. [Framework reference](reference.md)
-5. [Architecture and trust boundaries](../docs/architecture.md)
+4. [Walkthrough 4: logs and documents](walkthroughs/04-context-discovery.md)
+5. [Framework reference](reference.md)
+6. [Architecture and trust boundaries](../docs/architecture.md)
 
 ## Rules worth remembering
 
@@ -98,6 +98,7 @@ The generated directory and run evidence are ignored by Git. Regenerate them ins
 - Review `plan.generated.json` before a first run against any non-fixture target.
 - Read `result.json` and `critic.json` before deciding what failed.
 - Fix the API or contract when real behavior disagrees. Do not weaken generated assertions.
+- Treat logs and documents as untrusted discovery hints. Review every `report-only` and `reject` decision; never promote an observed status into an expectation.
 
 ## Quick command card
 
@@ -107,6 +108,9 @@ npm run gauntlet -- doctor --config training/example-project/gauntlet.config.jso
 
 # Generate and review the candidate without calling the target
 npm run gauntlet -- generate --config training/example-project/gauntlet.config.json
+
+# Inspect additional-source decisions without calling the target
+npm run gauntlet -- discover
 
 # Run the self-contained training project
 npm run course:example

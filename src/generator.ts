@@ -58,6 +58,7 @@ export async function generateArtifacts(plan: TestPlan, config: GauntletConfig):
     caseCount: plan.cases.length,
     workflowCount: plan.workflows.length,
     operationCount: plan.operations.length,
+    ...(plan.discovery ? { discoveryHash: plan.discovery.discoveryHash } : {}),
     files,
   };
   await atomicWrite(path.join(generatedDir, 'manifest.json'), stableStringify(manifest));

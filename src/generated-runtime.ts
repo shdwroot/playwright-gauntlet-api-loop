@@ -105,7 +105,7 @@ export async function executeGeneratedCase(
   const testCase = substitute(planned, variables) as TestCasePlan;
   const url = renderPath(testCase.path, testCase.pathParams);
   const headers = { ...testCase.headers, ...(testCase.useAuth ? authHeaders() : {}) };
-  const requestEvidence = redact({ caseId: testCase.id, operationId: testCase.operationId, method: testCase.method, url, headers, query: testCase.query, body: testCase.body });
+  const requestEvidence = redact({ caseId: testCase.id, operationId: testCase.operationId, method: testCase.method, url, headers, query: testCase.query, body: testCase.rawBody ?? testCase.body });
   let response;
   const started = Date.now();
   try {
@@ -113,7 +113,7 @@ export async function executeGeneratedCase(
       method: testCase.method,
       params: testCase.query as Record<string, string | number | boolean>,
       headers,
-      ...(testCase.body !== undefined ? { data: testCase.body } : {}),
+      ...(testCase.rawBody !== undefined ? { data: Buffer.from(testCase.rawBody, 'utf8') } : testCase.body !== undefined ? { data: testCase.body } : {}),
       failOnStatusCode: false,
     });
   } catch (error) {

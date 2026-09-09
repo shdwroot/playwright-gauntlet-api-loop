@@ -109,6 +109,14 @@ Doctor should report `"ok": true` and the expected operation/workflow counts. Fi
 
 ## Step 6: Generate without executing
 
+If you configured logs or documents, inspect their decisions first:
+
+```bash
+npm run gauntlet -- discover --config my-api-gauntlet/gauntlet.config.json
+```
+
+Resolve unexpected `report-only`/`reject` findings, source errors, and contract gaps before generating. See [Walkthrough 4](04-context-discovery.md).
+
 ```bash
 npm run gauntlet -- generate --config my-api-gauntlet/gauntlet.config.json
 ```
@@ -199,6 +207,7 @@ Then export the named key before generating or running. This mode makes external
 - [ ] Destructive access is enabled only when reviewed test data can be changed.
 - [ ] Credential values exist only in the environment.
 - [ ] Planned requests fit below `maxRequestsPerRun`.
+- [ ] Every discovery source and candidate disposition was reviewed; no observation is being treated as an oracle.
 - [ ] The final status and critic hard findings were read from saved evidence.
 - [ ] Failure traces and exchanges were reviewed before changing API or contract behavior.
 
