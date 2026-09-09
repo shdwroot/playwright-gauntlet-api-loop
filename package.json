@@ -1,0 +1,41 @@
+{
+  "name": "playwright-gauntlet-api-loop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Evidence-driven Playwright API test generation, execution, critique, and safe self-healing.",
+  "bin": {
+    "api-gauntlet": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "esbuild src/*.ts --outdir=dist/src --format=esm --platform=node --target=node20",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:tests": "esbuild tests/**/*.test.ts --outdir=dist/tests --outbase=tests --format=esm --platform=node --target=node20",
+    "pretest": "npm run build --silent && npm run build:tests --silent",
+    "test": "node --test dist/tests/**/*.test.js",
+    "pretest:unit": "npm run build --silent && npm run build:tests --silent",
+    "test:unit": "node --test dist/tests/unit/**/*.test.js",
+    "pretest:integration": "npm run build --silent && npm run build:tests --silent",
+    "test:integration": "node --test dist/tests/integration/**/*.test.js",
+    "pregauntlet": "npm run build --silent",
+    "gauntlet": "node dist/src/cli.js",
+    "predemo": "npm run build --silent",
+    "demo": "node dist/src/demo.js",
+    "precourse:example": "npm run build --silent",
+    "course:example": "node training/example-project/run-demo.mjs",
+    "fixture": "node fixtures/sample-api.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@playwright/test": "1.63.0",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.0",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  }
+}

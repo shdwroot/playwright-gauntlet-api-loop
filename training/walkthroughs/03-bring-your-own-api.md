@@ -1,0 +1,231 @@
+# How to test your own API
+
+You will create a bounded config beside your OpenAPI contract, review the generated plan, run it against a chosen environment, and audit the final evidence.
+
+## Prerequisites
+
+- Node.js 20 or newer
+- A local OpenAPI 3.x JSON or YAML file
+- A target environment whose data may safely be read or mutated by the planned cases
+- Credential environment-variable names and values, if the API is secured
+
+Start with a local or disposable test environment. Do not point the first generated plan at production.
+
+## Step 1: Create a workspace for the contract
+
+```bash
+mkdir -p my-api-gauntlet
+cp training/example-project/gauntlet.config.json my-api-gauntlet/gauntlet.config.json
+cp training/example-project/openapi.yaml my-api-gauntlet/openapi.yaml
+```
+
+Replace `my-api-gauntlet/openapi.yaml` with your contract. The config loader intentionally requires the spec, generated directory, and artifact directory to remain inside the config directory.
+
+## Step 2: Make the contract generation-ready
+
+Check these contract requirements:
+
+- `openapi` begins with `3.`.
+- Every operation has a unique, non-empty `operationId`.
+- Every operation declares at least one numeric response such as `"200"`.
+- Request bodies intended for generation use `application/json` or a `+json` media type.
+- Every `$ref` is local and begins with `#/`.
+- Required fields, examples, formats, enums, and min/max constraints describe inputs your test environment can accept.
+- Secured operations declare `401` if you want missing-credential cases.
+- Path operations declare `404` if you want not-found cases.
+- Create operations declare `409` and a known `x-gauntlet-conflict-value` if you want deterministic conflict cases.
+
+The contract is the test oracle. If it is stale, the framework will faithfully test the wrong expectation.
+
+## Step 3: Bound the target in config
+
+Edit `my-api-gauntlet/gauntlet.config.json`:
+
+```json
+{
+  "projectName": "my-api",
+  "spec": "openapi.yaml",
+  "baseUrl": "http://127.0.0.1:8080",
+  "generatedDir": ".gauntlet/generated",
+  "artifactsDir": ".gauntlet/runs",
+  "seed": 42,
+  "maxIterations": 3,
+  "timeoutMs": 30000,
+  "headersFromEnv": {
+    "authorization": "MY_API_AUTHORIZATION"
+  },
+  "safety": {
+    "allowedHosts": ["127.0.0.1"],
+    "allowedMethods": ["GET"],
+    "allowDestructive": false,
+    "allowProduction": false,
+    "maxRequestsPerRun": 100,
+    "maxResponseBytes": 65536
+  },
+  "agents": {
+    "provider": "deterministic",
+    "builderModel": "deterministic-v1",
+    "criticModel": "deterministic-v1"
+  },
+  "quality": {
+    "minimumScore": 95,
+    "minimumOperationCoverage": 1
+  }
+}
+```
+
+Begin with `GET` only. If the contract contains mutations, doctor can still load it, but the planner will mark denied operations uncovered and a 100 percent coverage gate will prevent a false pass.
+
+Only add `POST`, `PUT`, `PATCH`, or `DELETE` after reviewing the exact target and cases. Those methods also require `allowDestructive: true`.
+
+## Step 4: Map credential names, not values
+
+For a bearer token:
+
+```bash
+export MY_API_AUTHORIZATION='Bearer replace-with-test-token'
+```
+
+The config stores only `MY_API_AUTHORIZATION`, the environment-variable name. The runtime loads its value inside the Playwright worker.
+
+For multiple headers:
+
+```json
+{
+  "headersFromEnv": {
+    "authorization": "MY_API_AUTHORIZATION",
+    "x-tenant-id": "MY_API_TENANT_ID"
+  }
+}
+```
+
+## Step 5: Validate without contacting the target
+
+```bash
+npm run gauntlet -- doctor --config my-api-gauntlet/gauntlet.config.json
+```
+
+Doctor should report `"ok": true` and the expected operation/workflow counts. Fix config and contract errors before enabling more methods or running a target.
+
+## Step 6: Generate without executing
+
+```bash
+npm run gauntlet -- generate --config my-api-gauntlet/gauntlet.config.json
+```
+
+Review `my-api-gauntlet/.gauntlet/generated/plan.generated.json`. A quick coverage report:
+
+```bash
+node -e "const p=require('./my-api-gauntlet/.gauntlet/generated/plan.generated.json'); console.table(p.operations.map(o=>({operation:o.operationId,cases:o.coveredBy.length,blocked:o.blockedReason||''})))"
+```
+
+Do not run until every unexpected method, path, body, credential use, and workflow has been resolved.
+
+## Step 7: Run the target
+
+Start your API separately, then execute:
+
+```bash
+npm run gauntlet -- run --config my-api-gauntlet/gauntlet.config.json
+```
+
+The runner regenerates before execution, verifies artifact integrity, runs serially with zero retries, critiques the evidence, and stops on pass, block, denied healing, repetition, or the iteration limit.
+
+## Step 8: Verify the claimed layer
+
+Use the printed run ID:
+
+```bash
+npm run gauntlet -- report <run-id> --config my-api-gauntlet/gauntlet.config.json
+```
+
+A `PASSED` result proves the generated cases passed against that target during that run. It does not prove ungenerated business rules, browser behavior, load capacity, or another environment.
+
+For a failure, follow the evidence order in [Walkthrough 2](02-evidence-and-healing.md).
+
+## Add a workflow
+
+Use a workflow when a later request needs data created by an earlier response:
+
+```yaml
+x-gauntlet-workflows:
+  create-read-delete:
+    description: Create, read, and delete one disposable record.
+    steps:
+      - id: create
+        operationId: createRecord
+        request:
+          body:
+            name: Course Record
+        capture:
+          recordId: $response.body#/id
+      - id: read
+        operationId: getRecord
+        parameters:
+          id: ${steps.create.recordId}
+      - id: delete
+        operationId: deleteRecord
+        parameters:
+          id: ${steps.create.recordId}
+```
+
+Workflow request overrides must still satisfy the operation's request schema. The response capture must exist, or execution fails with `CAPTURE_MISSING`.
+
+If an operation is safe only with workflow-created data, set `x-gauntlet-skip-standalone: true` on that operation. The workflow can still count as its coverage.
+
+## Switch to OpenAI-assisted review
+
+Deterministic mode is the default and owns the executable plan in all cases. Optional OpenAI mode adds model-generated builder risk notes and critic findings; it does not grant the model authority to write tests or weaken hard gates.
+
+```json
+{
+  "agents": {
+    "provider": "openai",
+    "builderModel": "your-builder-model",
+    "criticModel": "your-critic-model",
+    "apiKeyEnv": "OPENAI_API_KEY"
+  }
+}
+```
+
+Then export the named key before generating or running. This mode makes external API calls and may incur cost; deterministic mode remains suitable for offline CI.
+
+## Verification checklist
+
+- [ ] Doctor reports the expected contract identity and counts.
+- [ ] Every required operation has at least one `coveredBy` entry.
+- [ ] The target host is exact and the intended environment is running.
+- [ ] Allowed methods contain nothing unexpected.
+- [ ] Destructive access is enabled only when reviewed test data can be changed.
+- [ ] Credential values exist only in the environment.
+- [ ] Planned requests fit below `maxRequestsPerRun`.
+- [ ] The final status and critic hard findings were read from saved evidence.
+- [ ] Failure traces and exchanges were reviewed before changing API or contract behavior.
+
+## Troubleshooting
+
+### `CONTRACT_DUPLICATE_OPERATION_ID`
+
+Give every operation a unique `operationId`. The error includes both conflicting source pointers.
+
+### `CONTRACT_REF_DENIED`
+
+Bundle remote schemas into the local OpenAPI document and use a `#/components/...` reference.
+
+### `COVERAGE_GAP`
+
+Read `operations[*].blockedReason` in the generated plan. Common causes are a denied HTTP method, destructive access left off, a skipped standalone operation with no workflow, or no declared `2xx` response.
+
+### `REQUEST_BUDGET_EXCEEDED`
+
+Review why the contract generates that many standalone cases and workflow steps. Raise the budget only after the full planned request set is intentional.
+
+### `CONTRACT_ASSERTION_FAILED`
+
+Open the failing exchange and compare the response with the immutable contract. Fix whichever is wrong; do not teach the test to accept the observed response automatically.
+
+## Related
+
+- [Framework reference](../reference.md)
+- [Configuration](../../docs/configuration.md)
+- [Architecture](../../docs/architecture.md)

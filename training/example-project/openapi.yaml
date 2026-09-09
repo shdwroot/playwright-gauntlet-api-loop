@@ -1,0 +1,250 @@
+openapi: 3.1.0
+info:
+  title: Training Inventory API
+  version: 1.0.0
+  description: A loopback-only API for learning the Playwright API Gauntlet.
+servers:
+  - url: http://127.0.0.1:4020
+x-gauntlet-workflows:
+  create-read-delete:
+    description: Create an item, read its captured identifier, then delete it.
+    steps:
+      - id: create
+        operationId: createItem
+        request:
+          body:
+            name: Course Widget
+            sku: course-${runId}
+            stock: 7
+        capture:
+          itemId: $response.body#/id
+      - id: read
+        operationId: getItem
+        parameters:
+          itemId: ${steps.create.itemId}
+      - id: delete
+        operationId: deleteItem
+        parameters:
+          itemId: ${steps.create.itemId}
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Check whether the training API is ready
+      security: []
+      responses:
+        "200":
+          description: The service is ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /items:
+    get:
+      operationId: listItems
+      summary: List inventory items
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum items to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: A page of inventory items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemList"
+        "400":
+          $ref: "#/components/responses/InvalidQuery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createItem
+      summary: Create an inventory item
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateItem"
+      responses:
+        "201":
+          description: The item was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /items/{itemId}:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        description: Stable inventory identifier.
+        schema:
+          type: string
+          pattern: ^itm_[0-9]{4}$
+        example: itm_0001
+    get:
+      operationId: getItem
+      summary: Read an inventory item
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: The requested inventory item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteItem
+      summary: Delete an inventory item
+      x-gauntlet-skip-standalone: true
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "204":
+          description: The item was deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+    CreateItem:
+      type: object
+      additionalProperties: false
+      required: [name, sku]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+          example: Training Widget
+        sku:
+          type: string
+          minLength: 3
+          maxLength: 48
+          pattern: ^[a-z0-9-]+$
+          example: training-widget
+          x-gauntlet-conflict-value: starter-001
+        stock:
+          type: integer
+          minimum: 0
+          maximum: 999
+          default: 10
+    Item:
+      type: object
+      additionalProperties: false
+      required: [id, name, sku, stock]
+      properties:
+        id:
+          type: string
+          pattern: ^itm_[0-9]{4}$
+        name:
+          type: string
+          minLength: 2
+          maxLength: 60
+        sku:
+          type: string
+          minLength: 3
+          maxLength: 48
+          pattern: ^[a-z0-9-]+$
+        stock:
+          type: integer
+          minimum: 0
+          maximum: 999
+    ItemList:
+      type: object
+      additionalProperties: false
+      required: [data, total, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+  responses:
+    InvalidQuery:
+      description: A query parameter is outside its declared bounds.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: The API key is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: An item already uses the requested SKU.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: The request body violates the contract.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No item has the requested identifier.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

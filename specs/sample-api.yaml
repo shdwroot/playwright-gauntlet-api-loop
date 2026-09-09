@@ -1,0 +1,493 @@
+openapi: 3.1.0
+info:
+  title: Gauntlet Sample Users API
+  version: 1.0.0
+  description: >-
+    A deterministic, loopback-only API used to exercise generation, execution,
+    critique, and self-healing behavior.
+servers:
+  - url: http://127.0.0.1:{port}
+    description: Local fixture server
+    variables:
+      port:
+        default: "4010"
+        description: The FIXTURE_PORT used by the local fixture.
+tags:
+  - name: System
+  - name: Users
+  - name: Harness
+x-gauntlet-workflows:
+  create-read-delete:
+    description: Create a unique user, read it by its captured identifier, then delete it.
+    steps:
+      - id: create
+        operationId: createUser
+        request:
+          body:
+            name: Workflow User
+            email: workflow-${runId}@example.test
+            age: 28
+            role: user
+        capture:
+          userId: $response.body#/id
+      - id: read
+        operationId: getUser
+        parameters:
+          id: ${steps.create.userId}
+        expect:
+          status: 200
+      - id: delete
+        operationId: deleteUser
+        parameters:
+          id: ${steps.create.userId}
+        expect:
+          status: 204
+paths:
+  /health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Check fixture health
+      security: []
+      responses:
+        "200":
+          description: The fixture is ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+              examples:
+                healthy:
+                  value:
+                    status: ok
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List users in deterministic identifier order
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum users returned.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          examples:
+            minimum:
+              value: 1
+            maximum:
+              value: 100
+        - name: offset
+          in: query
+          required: false
+          description: Number of users skipped.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10000
+            default: 0
+          example: 0
+      responses:
+        "200":
+          description: A page of users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+              examples:
+                initial:
+                  value:
+                    data:
+                      - id: usr_0001
+                        name: Ada Lovelace
+                        email: ada@example.test
+                        age: 36
+                        role: admin
+                        createdAt: "2024-01-01T00:00:01.000Z"
+                    total: 1
+                    limit: 20
+                    offset: 0
+        "400":
+          $ref: "#/components/responses/InvalidQuery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Create a user
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUser"
+            examples:
+              valid:
+                value:
+                  name: Grace Hopper
+                  email: grace@example.test
+                  age: 85
+                  role: admin
+              minimum-boundaries:
+                value:
+                  name: Al
+                  email: a@b.co
+                  age: 18
+                  role: user
+      responses:
+        "201":
+          description: User created.
+          headers:
+            Location:
+              description: Relative URL for the new user.
+              schema:
+                type: string
+                pattern: ^/users/usr_[0-9]{4}$
+              example: /users/usr_0002
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+              examples:
+                created:
+                  value:
+                    id: usr_0002
+                    name: Grace Hopper
+                    email: grace@example.test
+                    age: 85
+                    role: admin
+                    createdAt: "2024-01-01T00:00:02.000Z"
+        "400":
+          $ref: "#/components/responses/InvalidJson"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: Get a user by identifier
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: The requested user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+              examples:
+                initial:
+                  value:
+                    id: usr_0001
+                    name: Ada Lovelace
+                    email: ada@example.test
+                    age: 36
+                    role: admin
+                    createdAt: "2024-01-01T00:00:01.000Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UserNotFound"
+    delete:
+      tags: [Users]
+      operationId: deleteUser
+      summary: Delete a user by identifier
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "204":
+          description: User deleted; the response has no body.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/UserNotFound"
+  /__reset:
+    post:
+      tags: [Harness]
+      operationId: resetFixture
+      summary: Reset deterministic fixture state
+      description: This harness-only operation requires x-gauntlet-reset with the exact value allowed.
+      security: []
+      parameters:
+        - name: x-gauntlet-reset
+          in: header
+          required: true
+          schema:
+            type: string
+            const: allowed
+          example: allowed
+      responses:
+        "200":
+          description: Fixture state reset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetResult"
+              example:
+                reset: true
+                userCount: 1
+        "403":
+          $ref: "#/components/responses/ResetForbidden"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Defaults to gauntlet-local-key and can be overridden with SAMPLE_API_KEY.
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: Deterministic fixture user identifier.
+      schema:
+        type: string
+        pattern: ^usr_[0-9]{4}$
+        minLength: 8
+        maxLength: 8
+      examples:
+        existing:
+          value: usr_0001
+        missing:
+          value: usr_9999
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+    UserRole:
+      type: string
+      enum: [user, admin]
+      default: user
+    CreateUser:
+      type: object
+      additionalProperties: false
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+          pattern: .*\S.*
+          example: Grace Hopper
+        email:
+          type: string
+          format: email
+          minLength: 3
+          maxLength: 254
+          example: grace@example.test
+          x-gauntlet-conflict-value: ada@example.test
+        age:
+          type: integer
+          minimum: 18
+          maximum: 120
+          example: 85
+        role:
+          $ref: "#/components/schemas/UserRole"
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, role, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: ^usr_[0-9]{4}$
+          minLength: 8
+          maxLength: 8
+          readOnly: true
+          example: usr_0001
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+          pattern: .*\S.*
+          example: Ada Lovelace
+        email:
+          type: string
+          format: email
+          minLength: 3
+          maxLength: 254
+          example: ada@example.test
+        age:
+          type: integer
+          minimum: 18
+          maximum: 120
+          example: 36
+        role:
+          $ref: "#/components/schemas/UserRole"
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          example: "2024-01-01T00:00:01.000Z"
+    UserList:
+      type: object
+      additionalProperties: false
+      required: [data, total, limit, offset]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
+          maximum: 10000
+    ResetResult:
+      type: object
+      additionalProperties: false
+      required: [reset, userCount]
+      properties:
+        reset:
+          type: boolean
+          const: true
+        userCount:
+          type: integer
+          const: 1
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              minLength: 1
+              maxLength: 64
+            message:
+              type: string
+              minLength: 1
+              maxLength: 512
+            details:
+              type: array
+              maxItems: 20
+              items:
+                type: string
+                maxLength: 256
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: A valid x-api-key header is required
+    InvalidQuery:
+      description: Query parameters violate their declared constraints.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_QUERY
+              message: limit must be an integer between 1 and 100
+    InvalidJson:
+      description: Request body is not valid JSON.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_JSON
+              message: Request body must be valid JSON
+    ValidationError:
+      description: Request body violates the user schema.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: The request body is invalid
+              details:
+                - age must be an integer between 18 and 120
+    Conflict:
+      description: Email addresses are unique, case-insensitively.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: EMAIL_CONFLICT
+              message: A user with that email already exists
+    UserNotFound:
+      description: No user has the requested identifier.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: USER_NOT_FOUND
+              message: No user exists with id usr_9999
+    PayloadTooLarge:
+      description: Request body exceeds 1 MiB.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: PAYLOAD_TOO_LARGE
+              message: Request body is too large
+    UnsupportedMediaType:
+      description: The request is not JSON.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UNSUPPORTED_MEDIA_TYPE
+              message: content-type must be application/json
+    ResetForbidden:
+      description: Reset guard header is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: RESET_FORBIDDEN
+              message: "x-gauntlet-reset: allowed is required"

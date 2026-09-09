@@ -1,0 +1,116 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { AgentProvider } from './agents.js';
+import type {
+  CriticFinding,
+  CriticVerdict,
+  ExecutionSummary,
+  GauntletConfig,
+  GeneratedManifest,
+  NormalizedContract,
+  TestPlan,
+} from './types.js';
+import { sha256, stableStringify } from './utils.js';
+import { verifyGeneratedArtifacts } from './generator.js';
+
+function finding(code: string, message: string, evidence: string[], repair: CriticFinding['repair'] = 'none'): CriticFinding {
+  return { code, severity: 'blocking', message, evidence, repair };
+}
+
+function parseAgentFindings(output: unknown): CriticFinding[] {
+  if (!output || typeof output !== 'object') return [];
+  const raw = (output as Record<string, unknown>).findings;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry): CriticFinding[] => {
+    if (!entry || typeof entry !== 'object') return [];
+    const record = entry as Record<string, unknown>;
+    if (typeof record.code !== 'string' || typeof record.message !== 'string') return [];
+    return [{
+      code: `AI_${record.code}`,
+      severity: record.severity === 'info' ? 'info' : record.severity === 'warning' ? 'warning' : 'blocking',
+      message: record.message.slice(0, 500),
+      evidence: Array.isArray(record.evidence) ? record.evidence.map(String).slice(0, 10) : [],
+      repair: 'none',
+    }];
+  });
+}
+
+export class CriticAgent {
+  constructor(private readonly provider: AgentProvider) {}
+
+  async review(
+    contract: NormalizedContract,
+    plan: TestPlan,
+    manifest: GeneratedManifest,
+    execution: ExecutionSummary,
+    config: GauntletConfig,
+  ): Promise<CriticVerdict> {
+    const findings: CriticFinding[] = [];
+    const integrity = await verifyGeneratedArtifacts(config);
+    if (!integrity.valid) findings.push(finding('ARTIFACT_INTEGRITY_FAILED', 'Generated artifacts do not match their signed manifest.', integrity.mismatches, 'regenerate-artifacts'));
+    if (manifest.specHash !== contract.specHash || plan.specHash !== contract.specHash) {
+      findings.push(finding('SPEC_HASH_MISMATCH', 'Candidate artifacts were not generated from the active contract.', [contract.specHash, manifest.specHash], 'regenerate-artifacts'));
+    }
+    const covered = plan.operations.filter((operation) => operation.coveredBy.length > 0).length;
+    const coverage = plan.operations.length === 0 ? 0 : covered / plan.operations.length;
+    if (coverage < config.quality.minimumOperationCoverage) {
+      const missing = plan.operations.filter((operation) => operation.coveredBy.length === 0).map((operation) => `${operation.operationId}: ${operation.blockedReason ?? 'no cases'}`);
+      findings.push(finding('COVERAGE_GAP', `Operation coverage ${(coverage * 100).toFixed(1)}% is below the required ${(config.quality.minimumOperationCoverage * 100).toFixed(1)}%.`, missing));
+    }
+    const expectedTests = plan.cases.length + plan.workflows.length;
+    if (execution.tests === 0) findings.push(finding('ZERO_TESTS_EXECUTED', 'A zero-test run can never pass.', [execution.reportPath]));
+    if (execution.tests !== expectedTests) findings.push(finding('EXECUTION_PLAN_MISMATCH', `Executed ${execution.tests} tests but the signed plan contains ${expectedTests}.`, [manifest.planHash]));
+    if (execution.skipped > 0) findings.push(finding('SKIPPED_TESTS', `${execution.skipped} generated tests were skipped.`, [execution.reportPath]));
+    if (execution.status === 'infrastructure-failed') findings.push(finding('TARGET_UNREACHABLE', 'The target environment was unreachable; assertions must not be changed.', [execution.stderrPath, execution.stdoutPath]));
+    else if (execution.status === 'framework-failed') findings.push(finding('FRAMEWORK_FAILURE', 'The Playwright suite did not execute successfully.', [execution.stderrPath, execution.stdoutPath], 'regenerate-artifacts'));
+    else if (execution.status === 'test-failed' || execution.failed > 0) findings.push(finding('CONTRACT_ASSERTION_FAILED', `${execution.failed} tests failed against the immutable contract.`, [execution.reportPath, ...execution.failureFingerprints], 'regenerate-artifacts'));
+
+    const generatedSource = await readFile(path.join(config.generatedDir, 'api.generated.spec.mjs'), 'utf8');
+    if (/\btest\.(?:skip|only|fixme)\s*\(/.test(generatedSource)) {
+      findings.push(finding('FORBIDDEN_TEST_CONTROL', 'Generated tests contain skip, only, or fixme controls.', ['api.generated.spec.mjs'], 'regenerate-artifacts'));
+    }
+    if (plan.cases.some((testCase) => !testCase.sourcePointer.startsWith('/paths/'))) {
+      findings.push(finding('TRACEABILITY_INVALID', 'At least one case lacks an OpenAPI source pointer.', ['plan.generated.json'], 'regenerate-artifacts'));
+    }
+
+    const deterministicScore = Math.round(
+      (execution.status === 'passed' && execution.failed === 0 ? 40 : 0)
+      + coverage * 25
+      + (execution.tests === expectedTests && execution.tests > 0 && execution.skipped === 0 ? 15 : 0)
+      + (integrity.valid && manifest.specHash === contract.specHash ? 10 : 0)
+      + (!findings.some((item) => ['FORBIDDEN_TEST_CONTROL', 'TRACEABILITY_INVALID'].includes(item.code)) ? 10 : 0),
+    );
+    const criticInput = {
+      immutableTarget: {
+        specHash: contract.specHash,
+        operations: contract.operations.map((operation) => ({ operationId: operation.operationId, sourcePointer: operation.sourcePointer, statuses: operation.responses.map((response) => response.status) })),
+        hardGates: ['all tests execute', 'no skips', 'complete traceability', 'artifact integrity', 'contract-derived assertions', 'no forbidden healing'],
+      },
+      anonymousCandidate: {
+        manifest,
+        coverage,
+        execution,
+        deterministicFindings: findings,
+      },
+    };
+    const invocation = await this.provider.invoke(
+      'critic',
+      config.agents.criticModel,
+      'You are an independent evidence critic. You did not build this candidate. Return {"decision":"pass|fix|block","findings":[{"code":"...","severity":"blocking|warning|info","message":"...","evidence":["..."]}]}. Cite raw evidence. Never trust a builder claim and never suggest weakening an assertion.',
+      criticInput,
+    );
+    findings.push(...parseAgentFindings(invocation.output));
+    const hardFailures = findings.filter((item) => item.severity === 'blocking').map((item) => item.code);
+    const score = Math.max(0, deterministicScore - findings.filter((item) => item.code.startsWith('AI_') && item.severity === 'blocking').length * 10);
+    const infrastructureBlocked = hardFailures.includes('TARGET_UNREACHABLE');
+    const pass = hardFailures.length === 0 && score >= config.quality.minimumScore;
+    return {
+      decision: pass ? 'pass' : infrastructureBlocked ? 'block' : 'fix',
+      score,
+      hardFailures,
+      findings,
+      criticId: invocation.agentId,
+      evidenceHash: sha256(stableStringify(criticInput)),
+    };
+  }
+}
