@@ -44,8 +44,10 @@ export function sampleFromSchema(schema: JsonSchema, seed: number, key: string, 
       const properties = schema.properties ?? {};
       const keys = Object.keys(properties).sort();
       const required = new Set(schema.required ?? []);
-      const selected = keys.filter((property) => required.has(property) || mode !== 'invalid');
-      const result = Object.fromEntries(selected.map((property) => [property, sampleFromSchema(properties[property]!, seed, `${key}.${property}`, mode)]));
+      const selected = keys.filter((property) => required.has(property)
+        || mode === 'boundary'
+        || (mode === 'valid' && properties[property]?.default !== undefined));
+      const result = Object.fromEntries(selected.map((property) => [property, sampleFromSchema(properties[property]!, seed, `${key}.${mode}.${property}`, mode)]));
       if (mode === 'invalid' && schema.required?.length) delete result[schema.required[0]!];
       return result;
     }
@@ -69,7 +71,10 @@ export function sampleFromSchema(schema: JsonSchema, seed: number, key: string, 
         if (schema.format === 'email') return 'not-an-email';
       }
       if (schema.format === 'email') return `gauntlet-${seed}-${shortId(key)}@example.test`;
-      if (schema.format === 'uuid') return `${shortId(`${seed}-${key}`)}-0000-4000-8000-000000000000`.slice(0, 36);
+      if (schema.format === 'uuid') {
+        const hash = sha256(`${seed}-${key}`);
+        return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+      }
       if (schema.format === 'date-time') return '2030-01-02T03:04:05.000Z';
       if (schema.format === 'date') return '2030-01-02';
       const minimum = schema.minLength ?? 1;
@@ -115,6 +120,22 @@ function buildInputs(operation: NormalizedOperation, seed: number, mode: SampleM
   };
 }
 
+function observedPathParams(template: string, observedPath: string | undefined): Record<string, string> {
+  if (!observedPath) return {};
+  const templateParts = template.split('/').filter(Boolean);
+  const observedParts = observedPath.split('?')[0]!.split('/').filter(Boolean);
+  if (templateParts.length !== observedParts.length) return {};
+  const parameters: Record<string, string> = {};
+  for (let index = 0; index < templateParts.length; index += 1) {
+    const part = templateParts[index]!;
+    if (!part.startsWith('{') || !part.endsWith('}')) continue;
+    const observed = decodeURIComponent(observedParts[index]!);
+    if (/^\[REDACTED/.test(observed)) continue;
+    parameters[part.slice(1, -1)] = observed;
+  }
+  return parameters;
+}
+
 function makeCase(
   operation: NormalizedOperation,
   specHash: string,
@@ -152,19 +173,32 @@ function allowed(operation: NormalizedOperation, config: GauntletConfig): string
 }
 
 function discoveryCase(operation: NormalizedOperation, contract: NormalizedContract, config: GauntletConfig, candidate: DiscoveryCandidate): TestCasePlan | undefined {
-  if (candidate.disposition !== 'generate' || candidate.observedStatus === undefined) return undefined;
-  const planned = makeCase(
-    operation,
-    contract.specHash,
-    config.seed,
-    'discovered',
-    [candidate.observedStatus],
-    'valid',
-    `Additional-source signal ${candidate.signal}; status and schema remain OpenAPI-derived`,
-    candidate.id,
-  );
+  if (!['generate', 'merge'].includes(candidate.disposition) || candidate.observedStatus === undefined) return undefined;
+  if (!operation.responses.some((response) => response.status === candidate.observedStatus)) return undefined;
+  const planned = candidate.signal === 'missing-auth'
+    ? makeCase(operation, contract.specHash, config.seed, 'authorization', [candidate.observedStatus], 'valid', 'Additional-source missing-auth signal corroborates the OpenAPI authorization response', candidate.id)
+    : candidate.signal === 'not-found'
+      ? makeCase(operation, contract.specHash, config.seed, 'not-found', [candidate.observedStatus], 'valid', 'Additional-source not-found signal corroborates the OpenAPI response', candidate.id)
+      : candidate.signal === 'conflict' && operation.requestBody
+        ? makeCase(operation, contract.specHash, config.seed, 'conflict', [candidate.observedStatus], 'conflict', 'Additional-source conflict signal corroborates the OpenAPI response', candidate.id)
+        : makeCase(
+          operation,
+          contract.specHash,
+          config.seed,
+          'discovered',
+          [candidate.observedStatus],
+          'valid',
+          `Additional-source signal ${candidate.signal}; status and schema remain OpenAPI-derived`,
+          candidate.id,
+        );
   planned.discovery = { signal: candidate.signal, candidateIds: [candidate.id], evidence: candidate.evidence };
-  if (candidate.signal === 'malformed-json') {
+  if (candidate.signal === 'not-found') {
+    const observed = observedPathParams(operation.path, candidate.observedPath);
+    for (const parameter of operation.parameters.filter((item) => item.in === 'path')) {
+      planned.pathParams[parameter.name] = observed[parameter.name]
+        ?? (parameter.schema.type === 'integer' ? 999_999 : sampleFromSchema(parameter.schema, config.seed, `${operation.operationId}.${parameter.name}.not-found`, 'valid'));
+    }
+  } else if (candidate.signal === 'malformed-json') {
     planned.headers['content-type'] = 'application/json';
     delete planned.body;
     planned.rawBody = '{"broken":';
@@ -308,6 +342,10 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig, 
           candidate.reason = 'The contract does not provide enough structure to synthesize this input deterministically.';
         }
         continue;
+      }
+      if (candidate.disposition === 'merge') {
+        candidate.disposition = 'generate';
+        candidate.reason = 'No matching baseline case existed, so a new OpenAPI-corroborated case was generated.';
       }
       const duplicate = cases.find((testCase) => requestIdentity(testCase) === requestIdentity(proposed));
       if (duplicate) {

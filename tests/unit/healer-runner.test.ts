@@ -9,6 +9,7 @@ import { buildPlan } from '../../src/planner.js';
 import { generateArtifacts } from '../../src/generator.js';
 import { healGeneratedArtifacts, injectStaleGeneratedData } from '../../src/healer.js';
 import { summarizePlaywrightReport } from '../../src/runner.js';
+import { parseAgentFindings } from '../../src/critic.js';
 import type { GauntletConfig } from '../../src/types.js';
 
 async function tempConfig(): Promise<GauntletConfig> {
@@ -41,4 +42,16 @@ test('runner distinguishes product failures, infrastructure failures, and zero-t
   assert.equal(summarizePlaywrightReport(report, 1, 'assertion failed', paths, 10).status, 'test-failed');
   assert.equal(summarizePlaywrightReport(report, 1, 'TARGET_UNREACHABLE ECONNREFUSED', paths, 10).status, 'infrastructure-failed');
   assert.equal(summarizePlaywrightReport({}, 1, 'collection error', paths, 10).status, 'framework-failed');
+});
+
+test('AI critic findings cannot invent a blocking gate without deterministic corroboration', () => {
+  const output = {
+    findings: [
+      { code: 'MODEL_ONLY_CONCERN', severity: 'blocking', message: 'The compact evidence may omit a detail.', evidence: ['model inference'] },
+      { code: 'COVERAGE_GAP', severity: 'blocking', message: 'The configured coverage gate failed.', evidence: ['deterministic finding'] },
+    ],
+  };
+  const findings = parseAgentFindings(output, new Set(['COVERAGE_GAP']));
+  assert.equal(findings[0]?.severity, 'warning');
+  assert.equal(findings[1]?.severity, 'blocking');
 });

@@ -104,3 +104,20 @@ test('deduplicates repeated semantic evidence while retaining every citation', a
   assert.equal(report.candidates.length, 1);
   assert.equal(report.candidates[0]?.evidence.length, 2);
 });
+
+test('generates an executable negative when a merge candidate has no standalone baseline', async () => {
+  const { config, contract } = await base();
+  const report = await discoverScenarios(contract, config);
+  const getUser = contract.operations.find((operation) => operation.operationId === 'getUser');
+  assert.ok(getUser);
+  getUser.skipStandalone = true;
+  const candidate = report.candidates.find((item) => item.operationId === 'getUser' && item.signal === 'not-found');
+  assert.ok(candidate);
+  candidate.observedPath = '/users/usr_9999';
+  const plan = buildPlan(contract, config, report);
+  const generated = plan.cases.find((item) => item.discovery?.candidateIds.includes(candidate.id));
+  assert.equal(plan.discovery?.candidates.find((item) => item.id === candidate.id)?.disposition, 'generate');
+  assert.equal(generated?.kind, 'not-found');
+  assert.deepEqual(generated?.expected.statuses, [404]);
+  assert.equal(generated?.pathParams.id, 'usr_9999');
+});

@@ -17,7 +17,7 @@ function finding(code: string, message: string, evidence: string[], repair: Crit
   return { code, severity: 'blocking', message, evidence, repair };
 }
 
-function parseAgentFindings(output: unknown): CriticFinding[] {
+export function parseAgentFindings(output: unknown, deterministicBlockingCodes: ReadonlySet<string> = new Set()): CriticFinding[] {
   if (!output || typeof output !== 'object') return [];
   const raw = (output as Record<string, unknown>).findings;
   if (!Array.isArray(raw)) return [];
@@ -25,9 +25,11 @@ function parseAgentFindings(output: unknown): CriticFinding[] {
     if (!entry || typeof entry !== 'object') return [];
     const record = entry as Record<string, unknown>;
     if (typeof record.code !== 'string' || typeof record.message !== 'string') return [];
+    const requestedSeverity = record.severity === 'info' ? 'info' : record.severity === 'warning' ? 'warning' : 'blocking';
+    const severity = requestedSeverity === 'blocking' && !deterministicBlockingCodes.has(record.code) ? 'warning' : requestedSeverity;
     return [{
       code: `AI_${record.code}`,
-      severity: record.severity === 'info' ? 'info' : record.severity === 'warning' ? 'warning' : 'blocking',
+      severity,
       message: record.message.slice(0, 500),
       evidence: Array.isArray(record.evidence) ? record.evidence.map(String).slice(0, 10) : [],
       repair: 'none',
@@ -145,20 +147,32 @@ export class CriticAgent {
         operations: contract.operations.map((operation) => ({ operationId: operation.operationId, sourcePointer: operation.sourcePointer, statuses: operation.responses.map((response) => response.status) })),
         hardGates: ['all tests execute', 'no skips', 'complete traceability', 'artifact integrity', 'contract-derived assertions', 'no forbidden healing'],
       },
+      configuredPolicy: {
+        minimumScore: config.quality.minimumScore,
+        minimumOperationCoverage: config.quality.minimumOperationCoverage,
+        aiBlockingRule: 'A model finding is blocking only when it reuses an exact code from deterministicFindings. New model concerns are advisory warnings.',
+      },
       anonymousCandidate: {
         manifest,
         coverage,
         execution,
         deterministicFindings: findings,
+        verifiedFacts: {
+          artifactIntegrity: integrity.valid,
+          specHashAligned: manifest.specHash === contract.specHash && plan.specHash === contract.specHash,
+          executionMatchesPlan: execution.tests === expectedTests,
+          oracleProvenanceChecked: !findings.some((item) => ['TRACEABILITY_INVALID', 'ORACLE_PROVENANCE_INVALID', 'ORACLE_EXPECTATION_UNDECLARED'].includes(item.code)),
+        },
       },
     };
     const invocation = await this.provider.invoke(
       'critic',
       config.agents.criticModel,
-      'You are an independent evidence critic. You did not build this candidate. Return {"decision":"pass|fix|block","findings":[{"code":"...","severity":"blocking|warning|info","message":"...","evidence":["..."]}]}. Cite raw evidence. Never trust a builder claim and never suggest weakening an assertion.',
+      'You are an independent evidence critic. You did not build this candidate. Return {"decision":"pass|fix|block","findings":[{"code":"...","severity":"blocking|warning|info","message":"...","evidence":["..."]}]}. Cite supplied evidence. A blocking finding must reuse an exact code from deterministicFindings; label every new concern warning or info. Treat verifiedFacts as verifier results, not builder claims. Do not require operation coverage above configuredPolicy.minimumOperationCoverage. Never suggest weakening an assertion.',
       criticInput,
     );
-    findings.push(...parseAgentFindings(invocation.output));
+    const deterministicBlockingCodes = new Set(findings.filter((item) => item.severity === 'blocking').map((item) => item.code));
+    findings.push(...parseAgentFindings(invocation.output, deterministicBlockingCodes));
     const hardFailures = findings.filter((item) => item.severity === 'blocking').map((item) => item.code);
     const score = Math.max(0, deterministicScore - findings.filter((item) => item.code.startsWith('AI_') && item.severity === 'blocking').length * 10);
     const infrastructureBlocked = hardFailures.includes('TARGET_UNREACHABLE');

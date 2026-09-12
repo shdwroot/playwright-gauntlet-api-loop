@@ -5,6 +5,7 @@ import { loadContract } from '../../src/openapi.js';
 import { buildPlan, sampleFromSchema } from '../../src/planner.js';
 import { loadConfig } from '../../src/config.js';
 import { stableStringify } from '../../src/utils.js';
+import type { JsonSchema } from '../../src/types.js';
 
 test('normalizes the sample contract with stable traceability', async () => {
   const contract = await loadContract(path.resolve('specs/sample-api.yaml'));
@@ -36,4 +37,30 @@ test('schema data generation honors constraints and invalid modes', () => {
   assert.equal(sampleFromSchema(schema, 42, 'limit', 'valid'), 1);
   assert.equal(sampleFromSchema(schema, 42, 'limit', 'boundary'), 10);
   assert.equal(sampleFromSchema(schema, 42, 'limit', 'invalid'), 0);
+});
+
+test('schema data generation keeps state-changing valid and boundary identities distinct', () => {
+  const schema: JsonSchema = {
+    type: 'object',
+    required: ['email'],
+    properties: { email: { type: 'string', format: 'email' } },
+  };
+  const valid = sampleFromSchema(schema, 42, 'createUser.body', 'valid') as { email: string };
+  const boundary = sampleFromSchema(schema, 42, 'createUser.body', 'boundary') as { email: string };
+  assert.notEqual(valid.email, boundary.email);
+});
+
+test('schema data generation omits optional valid fields and emits valid UUID boundaries', () => {
+  const schema: JsonSchema = {
+    type: 'object',
+    required: ['name'],
+    properties: {
+      name: { type: 'string', minLength: 2 },
+      optionalId: { type: 'string', format: 'uuid' },
+    },
+  };
+  const valid = sampleFromSchema(schema, 42, 'request', 'valid') as Record<string, unknown>;
+  const boundary = sampleFromSchema(schema, 42, 'request', 'boundary') as Record<string, unknown>;
+  assert.deepEqual(Object.keys(valid), ['name']);
+  assert.match(String(boundary.optionalId), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/u);
 });

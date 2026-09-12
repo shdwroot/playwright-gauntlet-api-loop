@@ -33,6 +33,10 @@ npm run demo
 
 New to the framework? Start with the [20-minute crash course](training/README.md), then work through the four runnable walkthroughs:
 
+For a source-derived, OpenAI-assisted example with stateful workflows and a
+controlled self-healing demonstration, see the
+[Witness OpenAPI Gauntlet](examples/the-witness/README.md).
+
 1. [Run the inventory gauntlet by hand](training/walkthroughs/01-first-run.md)
 2. [Distinguish generated drift from a real API defect](training/walkthroughs/02-evidence-and-healing.md)
 3. [Test your own API](training/walkthroughs/03-bring-your-own-api.md)

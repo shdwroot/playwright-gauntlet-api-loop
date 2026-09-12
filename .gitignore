@@ -7,5 +7,7 @@ playwright-report/
 test-results/
 *.log
 !context/*.log
+!examples/the-witness/route-observations.log
 .env
 *.local
+.gbrain-source

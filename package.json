@@ -23,6 +23,7 @@
     "demo": "node dist/src/demo.js",
     "precourse:example": "npm run build --silent",
     "course:example": "node training/example-project/run-demo.mjs",
+    "witness:demo": "node examples/the-witness/run-demo.mjs",
     "fixture": "node fixtures/sample-api.mjs"
   },
   "engines": {
