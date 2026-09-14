@@ -4,7 +4,8 @@ import { sha256, stableStringify } from './utils.js';
 
 export const PLAN_PROTOCOL = `Return JSON with cases (new standalone tests), workflows (new ordered tests), repairs (request changes to an existing generated caseId), coverageLinks, and riskNotes.
 A case is {id,title,operationId,status,rationale,request:{pathParams?,query?,headers?,body?,rawBody?,useAuth?},discoveryIds?:string[],assertions?:[{path:"$.bodyField",operator:"equals|not-equals|length-equals|contains|gte|lte",value:any,sourcePointer:"operation, nested contract pointer or referenced component pointer"}]}.
-A workflow is {id,title,steps:[case with optional capture:{variable:"$.responseField"}]}. Use capture:{wholeBody:"$"} to capture an entire response for comparison on a subsequent step.
+A workflow is {id,title,steps:[case with optional capture:{variable:"$.responseField"}],cleanupSteps:[case]}. cleanupSteps execute in finally even after a failed assertion; put resource deletion there. Use capture:{wholeBody:"$"} to capture an entire response for comparison on a subsequent step.
+assertionAdditions is [{caseId,assertions:[assertion]}] and appends assertions to existing tests without removing or weakening any.
 All tests may use the built-in \${runId}. Workflow request values may additionally use \${variable} from earlier captures or \${runId}. Each step must have an explicit id, unique within its workflow; standalone and workflow IDs must be unique. Captures are scoped to a workflow. Example: a create step with capture:{createdUserId:"$.id"}, then a read step with request:{pathParams:{id:"\${createdUserId}"}}. Capture keys are the variable names; step IDs do not automatically create variables. Use a DIFFERENT capture name for each created record. The read step status and operationId still must be specified.
 A repair is {caseId,request:{...},rationale,setupSteps?:[case with optional capture]}. setupSteps inserts validated preparation steps immediately before the existing case; a standalone case is moved intact into a setup workflow. Use this to establish fixture state without changing assertions. For example, put resetFixture with its required guard header before a list test that intentionally expects the single initial record. The original case and all its assertions still execute. You may repair request data in baseline and agent-authored generated cases, while preserving their test intent and all existing response assertions. No code, shell commands, URLs, deletions, assertion changes, or config changes.
 Use only declared operationId/status pairs. The executor supplies response schemas from the contract. Add concrete response assertions to test scenario-specific behavior, citing its operation or nested contract pointer. Assertions are immutable during healing. In workflows their values may reference earlier captures. Do not claim that an inferred business expectation is explicitly documented; describe inference in rationale.
@@ -148,9 +149,9 @@ function compileCase(value: unknown, contract: NormalizedContract, config: Gaunt
 
 export function applyAgentPlan(base: TestPlan, output: unknown, contract: NormalizedContract, config: GauntletConfig, allowRepairs = false): TestPlan {
   const proposal = record(output, 'plan');
-  keys(proposal, ['cases', 'workflows', 'repairs', 'coverageLinks', 'riskNotes'], 'plan');
+  keys(proposal, ['cases', 'workflows', 'repairs', 'coverageLinks', 'assertionAdditions', 'riskNotes'], 'plan');
   const plan = structuredClone(base);
-  const all = () => [...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)];
+  const all = () => [...plan.cases, ...plan.workflows.flatMap((workflow) => [...workflow.steps, ...(workflow.cleanupSteps ?? [])])];
   const usedIds = new Set([...all().map((item) => item.id), ...plan.workflows.map((item) => item.id)]);
   const reserve = (id: string): void => {
     if (usedIds.has(id)) throw new Error(`AGENT_DUPLICATE_ID: ${id}`);
@@ -166,12 +167,13 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
   }
   for (const value of list(proposal.workflows, 'workflows')) {
     const workflow = record(value, 'workflow');
-    keys(workflow, ['id', 'title', 'steps'], 'workflow');
+    keys(workflow, ['id', 'title', 'steps', 'cleanupSteps'], 'workflow');
     const id = `agent-${string(workflow.id, 'workflow id')}`;
     reserve(id);
     const variables = new Set(['runId']);
     const compiled: WorkflowPlan = { id, title: string(workflow.title, 'workflow title'), steps: [] };
-    const rawSteps = list(workflow.steps, 'steps');
+    const mainSteps = list(workflow.steps, 'steps');
+    const rawSteps = [...mainSteps, ...list(workflow.cleanupSteps, 'cleanupSteps')];
     const relatedOperations = rawSteps.map((step) => record(step, 'step').operationId);
     for (const rawStep of rawSteps) {
       const step = record(rawStep, 'step');
@@ -186,7 +188,8 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
         if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name) || variables.has(name) || typeof expression !== 'string' || !/^\$(?:\.[a-zA-Z0-9_-]+)*$/.test(expression)) throw new Error('AGENT_CAPTURE_INVALID');
         variables.add(name);
       }
-      compiled.steps.push({ ...testCase, capture: capture as Record<string, string> });
+      const destination = mainSteps.includes(rawStep) ? compiled.steps : (compiled.cleanupSteps ??= []);
+      destination.push({ ...testCase, capture: capture as Record<string, string> });
     }
     if (!compiled.steps.length) throw new Error('AGENT_WORKFLOW_EMPTY');
     plan.workflows.push(compiled);
@@ -209,8 +212,11 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
       return { ...step, capture: record(raw.capture ?? {}, 'capture') as Record<string, string> };
     });
     if (setup.length) {
-      const workflow = plan.workflows.find((item) => item.steps.some((step) => step.id === target.id));
-      if (workflow) workflow.steps.splice(workflow.steps.findIndex((step) => step.id === target.id), 0, ...setup);
+      const workflow = plan.workflows.find((item) => [...item.steps, ...(item.cleanupSteps ?? [])].some((step) => step.id === target.id));
+      if (workflow) {
+        const sequence = workflow.steps.some(step => step.id === target.id) ? workflow.steps : workflow.cleanupSteps!;
+        sequence.splice(sequence.findIndex((step) => step.id === target.id), 0, ...setup);
+      }
       else {
         const id = `setup-${target.id}`;
         reserve(id);
@@ -219,6 +225,15 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
       }
     }
     repaired.add(target.id);
+  }
+  for (const value of list(proposal.assertionAdditions, 'assertionAdditions')) {
+    const addition = record(value, 'assertion addition');
+    keys(addition, ['caseId', 'assertions'], 'assertion addition');
+    const target = all().find(t => t.id === addition.caseId);
+    if (!target) throw new Error('AGENT_ASSERTION_TARGET_UNKNOWN');
+    const checked = compileCase({ id: 'assertion-validation', operationId: target.operationId, status: target.expected.statuses[0], request: {}, rationale: target.title, assertions: addition.assertions }, contract, config, plan);
+    target.assertions = [...new Map([...(target.assertions ?? []), ...(checked.assertions ?? [])].map(a => [stableStringify(a), a])).values()];
+    if (target.assertions.length > 20) throw new Error('AGENT_ASSERTION_LIMIT');
   }
   for (const note of list(proposal.riskNotes, 'riskNotes')) {
     if (typeof note === 'string') { plan.warnings.push(`Agent risk: ${string(note, 'risk note')}`); continue; }
@@ -246,10 +261,17 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
         linkRationale: rationale };
     }
   }
+  // Recheck standalone assertions appended after initial compilation too.
+  for (const item of plan.cases) {
+    const inputs = { pathParams: item.pathParams, query: item.query, body: item.body, rawBody: item.rawBody, headers: item.headers, assertions: item.assertions };
+    for (const match of JSON.stringify(inputs).matchAll(/\$\{([^}]+)\}/g)) {
+      if (match[1] !== 'runId') throw new Error(`AGENT_CAPTURE_UNBOUND: ${item.id} references ${match[1]}`);
+    }
+  }
   // Recheck dependency scope after repairs as well as initial construction.
   for (const workflow of plan.workflows) {
     const variables = new Set(['runId']);
-    for (const step of workflow.steps) {
+    for (const step of [...workflow.steps, ...(workflow.cleanupSteps ?? [])]) {
       const inputs = { pathParams: step.pathParams, query: step.query, body: step.body, rawBody: step.rawBody, headers: step.headers, assertions: step.assertions };
       for (const match of JSON.stringify(inputs).matchAll(/\$\{([^}]+)\}/g)) {
         if (!variables.has(match[1]!)) throw new Error(`AGENT_CAPTURE_UNBOUND: ${step.id} references ${match[1]}`);
@@ -263,7 +285,15 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
   for (const operation of contract.operations) {
     if (all().filter((item) => item.authoredBy === 'agent' && item.operationId === operation.operationId).length > config.discovery.maxCandidatesPerOperation) throw new Error(`AGENT_OPERATION_BUDGET_EXCEEDED: ${operation.operationId}`);
   }
-  if (all().length > config.safety.maxRequestsPerRun) throw new Error('AGENT_REQUEST_BUDGET_EXCEEDED');
+  if (config.isolation) {
+    const operation = contract.operations.find(o => o.operationId === config.isolation!.operationId);
+    const status = operation?.responses.find(r => typeof r.status === 'number' && r.status >= 200 && r.status < 300)?.status;
+    if (!status) throw new Error('ISOLATION_OPERATION_REQUIRES_SUCCESS_RESPONSE');
+    const hook = compileCase({ id: 'isolation-reset', operationId: operation!.operationId, status, request: config.isolation.request, rationale: 'Configured test environment reset' }, contract, config, plan);
+    if (/\$\{/.test(stableStringify(hook))) throw new Error('ISOLATION_HOOK_VARIABLES_DENIED');
+    plan.isolation = { beforeEach: [{ ...hook, capture: {} }], afterEach: [{ ...hook, capture: {} }] };
+  }
+  if (plannedRequestCount(plan) > config.safety.maxRequestsPerRun) throw new Error('AGENT_REQUEST_BUDGET_EXCEEDED');
   for (const coverage of plan.operations) {
     coverage.coveredBy = [...new Set([
       ...coverage.coveredBy,
@@ -284,4 +314,8 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
     plan.discovery.discoveryHash = sha256(stableStringify(unsigned));
   }
   return plan;
+}
+
+export function plannedRequestCount(plan: TestPlan): number {
+  return plan.cases.length + plan.workflows.reduce((n, w) => n + w.steps.length + (w.cleanupSteps?.length ?? 0), 0) + (plan.cases.length + plan.workflows.length) * ((plan.isolation?.beforeEach.length ?? 0) + (plan.isolation?.afterEach.length ?? 0));
 }

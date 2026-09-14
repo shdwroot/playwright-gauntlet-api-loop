@@ -110,6 +110,10 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
   if (provider !== 'deterministic' && provider !== 'openai') throw new Error('CONFIG_INVALID: agents.provider must be deterministic or openai');
 
   const config: GauntletConfig = {
+    ...(raw.isolation ? { isolation: (() => {
+      const isolation = requireRecord(raw, 'isolation');
+      return { operationId: requireString(isolation, 'operationId'), request: requireRecord(isolation, 'request') };
+    })() } : {}),
     projectRoot: root,
     projectName: requireString(raw, 'projectName'),
     spec: ensureWithin(root, path.resolve(root, requireString(raw, 'spec'))),
@@ -138,6 +142,7 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
       discoveryModel: model('discoveryModel', model('builderModel')),
       leadModel: model('leadModel', model('builderModel')),
       healerModel: model('healerModel', model('builderModel')),
+      verifierModel: model('verifierModel', model('criticModel')),
       timeoutMs: positiveInteger(agentsRaw, 'timeoutMs', 120_000),
       ...(typeof agentsRaw.openaiBaseUrl === 'string' ? { openaiBaseUrl: agentsRaw.openaiBaseUrl } : {}),
       ...(typeof agentsRaw.apiKeyEnv === 'string' ? { apiKeyEnv: agentsRaw.apiKeyEnv } : {}),
@@ -146,6 +151,8 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
       minimumScore: Math.min(100, Math.max(0, finiteNumber(qualityRaw, 'minimumScore', 95))),
       minimumOperationCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumOperationCoverage', 1))),
       minimumScenarioCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumScenarioCoverage', provider === 'openai' ? 1 : 0))),
+      requireSemanticVerification: qualityRaw.requireSemanticVerification !== false && provider === 'openai',
+      requireIsolationReview: qualityRaw.requireIsolationReview !== false && provider === 'openai',
     },
     discovery: discoveryConfig(raw, root),
   };

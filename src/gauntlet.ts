@@ -1,3 +1,4 @@
+import type { CoverageBacklog } from './coverage.js';
 import { runAgenticGauntlet } from './agent-loop.js';
 import type { AgentProvider } from './agents.js';
 import path from 'node:path';
@@ -23,11 +24,11 @@ export interface RunOptions {
 
 export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> {
   const { config, configPath } = await loadConfig(options.configPath);
-  return maintainRun(config, configPath, previousPlan => runOnce(config, options, previousPlan));
+  return maintainRun(config, configPath, (previousPlan, previousBacklog) => runOnce(config, options, previousPlan, previousBacklog));
 }
 
-async function runOnce(config: Awaited<ReturnType<typeof loadConfig>>['config'], options: RunOptions, previousPlan?: TestPlan): Promise<RunResult> {
-  if (config.agents.provider === 'openai') return runAgenticGauntlet(config, { ...options, ...(previousPlan ? { previousPlan } : {}) });
+async function runOnce(config: Awaited<ReturnType<typeof loadConfig>>['config'], options: RunOptions, previousPlan?: TestPlan, previousBacklog?: CoverageBacklog): Promise<RunResult> {
+  if (config.agents.provider === 'openai') return runAgenticGauntlet(config, { ...options, ...(previousBacklog ? { previousBacklog } : {}), ...(previousPlan ? { previousPlan } : {}) });
   const contract = await loadContract(config.spec);
   const discovery = await discoverScenarios(contract, config);
   const runId = options.runId ?? newRunId();

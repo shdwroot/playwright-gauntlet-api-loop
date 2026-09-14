@@ -125,6 +125,10 @@ export async function executeGeneratedCase(
   const raw = (await response.text()).slice(0, maxBytes);
   const contentType = response.headers()['content-type'] ?? '';
   const body = responseBody(raw, contentType);
+  for (const [name, expression] of Object.entries((planned as import('./types.js').WorkflowStepPlan).capture ?? {})) {
+    const captured = readCapture(body, expression);
+    if (captured !== undefined && (testCase.expected.statuses.includes(response.status()) || (response.status() >= 200 && response.status() < 300))) variables[name] = captured;
+  }
   const responseEvidence = redact({ status: response.status(), headers: response.headers(), durationMs: Date.now() - started, body });
   await testInfo.attach(`${testCase.id}-exchange.json`, {
     body: Buffer.from(JSON.stringify({ request: requestEvidence, response: responseEvidence }, null, 2)),
@@ -170,12 +174,40 @@ function readCapture(body: unknown, expression: string): unknown {
 
 export async function executeGeneratedWorkflow(request: APIRequestContext, testInfo: TestInfo, workflow: WorkflowPlan): Promise<void> {
   const variables: Record<string, unknown> = { runId: process.env.GAUNTLET_RUN_ID ?? 'local-run' };
-  for (const step of workflow.steps) {
-    const body = await executeGeneratedCase(request, testInfo, step, variables);
-    for (const [name, expression] of Object.entries(step.capture)) {
-      const captured = readCapture(body, expression);
-      if (captured === undefined) throw new Error(`CAPTURE_MISSING: ${name} from ${expression}`);
-      variables[name] = captured;
+  const errors: unknown[] = [];
+  try {
+    for (const step of workflow.steps) {
+      const body = await executeGeneratedCase(request, testInfo, step, variables);
+      for (const [name, expression] of Object.entries(step.capture)) {
+        if (readCapture(body, expression) === undefined) throw new Error(`CAPTURE_MISSING: ${name} from ${expression}`);
+      }
+    }
+  } catch (error) { errors.push(error); }
+  finally {
+    for (const step of workflow.cleanupSteps ?? []) {
+      const missing = [...JSON.stringify(step).matchAll(/\$\{([^}]+)\}/g)].map(m => m[1]!).filter(name => !(name in variables));
+      if (missing.length) {
+        await testInfo.attach(`${step.id}-cleanup-unavailable.json`, { body: Buffer.from(JSON.stringify({ missing })), contentType: 'application/json' });
+        errors.push(new Error(`CLEANUP_CAPTURE_UNAVAILABLE: ${step.id}: ${missing.join(', ')}`));
+        continue;
+      }
+      try { await executeGeneratedCase(request, testInfo, step, variables); }
+      catch (error) { errors.push(error); }
     }
   }
+  if (errors.length) throw new AggregateError(errors, errors.map(e => e instanceof Error ? e.message : String(e)).join('\n'));
+}
+
+export async function executeIsolated(request: APIRequestContext, testInfo: TestInfo, plan: TestPlan, action: () => Promise<unknown>): Promise<void> {
+  const errors: unknown[] = [];
+  try {
+    for (const step of plan.isolation?.beforeEach ?? []) await executeGeneratedCase(request, testInfo, step);
+    await action();
+  } catch (error) { errors.push(error); }
+  finally {
+    for (const step of plan.isolation?.afterEach ?? []) {
+      try { await executeGeneratedCase(request, testInfo, step); } catch (error) { errors.push(error); }
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, errors.map(e => e instanceof Error ? e.message : String(e)).join('\n'));
 }

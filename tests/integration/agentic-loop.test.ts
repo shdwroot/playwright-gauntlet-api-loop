@@ -40,6 +40,10 @@ async function runFixture(defect = false) {
             { id: 'read-new', title: 'Read captured user', operationId: 'getUser', status: 200, rationale: 'Read newly created record', request: { pathParams: { id: '${userId}' } }, assertions: [{ path: '$', operator: 'equals', value: '${createdBody}', sourcePointer: '/paths/~1users~1{id}/get' }] },
             { id: 'delete-new', title: 'Remove test user', operationId: 'deleteUser', status: 204, rationale: 'Clean up created record', request: { pathParams: { id: '${userId}' } } },
           ] }], repairs: [], riskNotes: [] };
+      } else if (system.startsWith('Independently verify')) {
+        calls.push('verifier');
+        output = { assessments: input.obligations.map((o: { id: string }) => ({ obligationId: o.id, verdict: 'verified', reason: 'Checks empty data at a valid distant offset.', proofs: [{ testId: 'agent-last-page', assertionPointers: ['/assertions/0'] }] })),
+          isolation: [...input.plan.cases, ...input.plan.workflows].map((u: { id: string }) => ({ unitId: u.id, verdict: 'isolated', reason: 'Controlled regression fixture.' })) };
       } else if (system.startsWith('Investigate actual')) {
         calls.push('healer'); healerEvidence = input.evidence;
         assert.ok(input.evidence.execution.failures.length);
@@ -53,7 +57,7 @@ async function runFixture(defect = false) {
         calls.push('critic'); output = { decision: 'pass', findings: [] };
       }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ output: [{ content: [{ type: 'output_text', text: JSON.stringify(output) }] }] }));
+      res.end(JSON.stringify({ output: [{ type: 'reasoning', content: [{ type: 'reasoning_text', text: 'Private reasoning is not the structured answer.' }] }, { type: 'message', content: [{ type: 'output_text', text: JSON.stringify(output) }] }] }));
     } catch (error) {
       res.writeHead(500); res.end(String(error));
     }
@@ -90,7 +94,7 @@ test('agentic HTTP provider discovers prose, implements cases/workflows, repairs
   const { result, calls, plan } = await runFixture();
   assert.equal(result.status, 'PASSED', JSON.stringify(result.findings));
   assert.equal(result.iterations, 2);
-  assert.deepEqual(calls, ['discovery', 'lead', 'builder', 'lead', 'critic', 'lead', 'healer', 'lead', 'critic', 'lead']);
+  assert.deepEqual(calls, ['discovery', 'lead', 'builder', 'lead', 'verifier', 'critic', 'lead', 'healer', 'lead', 'verifier', 'critic', 'lead']);
   assert.equal(result.heals[0]?.classification, 'test-implementation');
   assert.equal(result.heals[0]?.policyDecision, 'auto');
   assert.deepEqual(plan.cases.find((item) => item.id === 'agent-last-page')?.expected.statuses, [200]);

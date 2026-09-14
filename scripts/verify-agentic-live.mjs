@@ -12,6 +12,7 @@ if (selected.agents.provider !== 'openai') throw new Error('LIVE_VERIFICATION_RE
 const listener = createServer(); listener.listen(0, '127.0.0.1'); await once(listener, 'listening');
 const port = listener.address().port;
 await new Promise((resolve) => listener.close(resolve));
+process.env.GAUNTLET_BASE_URL = `http://127.0.0.1:${port}`;
 const root = path.resolve('.gauntlet', `live-agentic-${Date.now()}`);
 await mkdir(root, { recursive: true });
 await cp('specs/sample-api.yaml', path.join(root, 'spec.yaml'));
@@ -19,9 +20,10 @@ await cp('context', path.join(root, 'context'), { recursive: true });
 const config = {
   projectName: 'luna-local-acceptance', spec: 'spec.yaml', baseUrl: `http://127.0.0.1:${port}`,
   generatedDir: 'generated', artifactsDir: 'runs', seed: 42, maxIterations: 3, timeoutMs: 30000,
+  isolation: { operationId: 'resetFixture', request: { headers: { 'x-gauntlet-reset': 'allowed' } } },
   headersFromEnv: { 'x-api-key': 'SAMPLE_API_KEY' },
   discovery: { enabled: true, required: true, sources: ['context'] },
-  safety: { allowedHosts: ['127.0.0.1'], allowedMethods: ['GET', 'POST', 'DELETE'], allowDestructive: true, allowProduction: false, maxRequestsPerRun: 150, maxResponseBytes: 65536 },
+  safety: { allowedHosts: ['127.0.0.1'], allowedMethods: ['GET', 'POST', 'DELETE'], allowDestructive: true, allowProduction: false, maxRequestsPerRun: 400, maxResponseBytes: 65536 },
   agents: selected.agents, quality: { minimumScore: 95, minimumOperationCoverage: 1 },
 };
 const configPath = path.join(root, 'gauntlet.config.json');

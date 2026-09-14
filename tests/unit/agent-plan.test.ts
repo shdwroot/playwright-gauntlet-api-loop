@@ -154,3 +154,15 @@ test('assertions can cite referenced components and use array indices', async ()
   assert.equal(built.cases.at(-1)?.assertions?.[0]?.path, '$.data.0.id');
   assert.throws(() => applyAgentPlan(plan, { cases: [{ ...testCase, assertions: [{ path: '$.data', operator: 'length-equals', value: 1, sourcePointer: '/components/responses/ResetForbidden' }] }] }, contract, config), /PROVENANCE_INVALID/);
 });
+
+test('assertion improvements append without weakening expectations and reject unbound captures', async () => {
+  const { config, contract, plan } = await base();
+  const built = applyAgentPlan(plan, { cases: [testCase] }, contract, config);
+  const target = built.cases.at(-1)!;
+  const addition = { path: '$.total', operator: 'gte', value: 0, sourcePointer: '/paths/~1users/get' };
+  const enhanced = applyAgentPlan(built, { assertionAdditions: [{ caseId: target.id, assertions: [addition] }] }, contract, config);
+  assert.deepEqual(enhanced.cases.at(-1)?.expected, target.expected);
+  assert.deepEqual(enhanced.cases.at(-1)?.assertions?.[0], target.assertions?.[0]);
+  assert.equal(enhanced.cases.at(-1)?.assertions?.length, 2);
+  assert.throws(() => applyAgentPlan(built, { assertionAdditions: [{ caseId: target.id, assertions: [{ ...addition, value: '${unknown}' }] }] }, contract, config), /CAPTURE_UNBOUND/);
+});

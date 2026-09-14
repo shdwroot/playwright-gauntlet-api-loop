@@ -132,3 +132,32 @@ The required test path is offline except for loopback HTTP. `APIRequestContext` 
 See the [training course](training/README.md), [framework reference](training/reference.md), [architecture](docs/architecture.md), [configuration](docs/configuration.md), and [attribution](NOTICE.md).
 
 Design references: [Playwright API testing](https://playwright.dev/docs/api-testing), [Anthropic's evaluator-optimizer and orchestrator-worker patterns](https://www.anthropic.com/engineering/building-effective-agents), and [RoboNuggets' Gauntlet Loop skill](https://github.com/robonuggets/gauntlet-loop).
+
+### Persistent coverage and isolation
+
+The same command runs discovery, implementation, Playwright, semantic verification, critique, and bounded repair:
+
+```sh
+npm run gauntlet -- run --watch
+```
+
+Each live run retains its `coverage-backlog.json`, including failed runs. Rediscovery cannot silently discard prior obligations. A separate Luna verifier reviews actual assertions and preconditions; the framework checks that cited assertion pointers exist, tests are linked to the scenario, and those tests passed in this execution. The analysis report distinguishes these reviewed obligations from simple implementation links. This is evidence-backed model review, not a guarantee of exhaustive coverage.
+
+Changed context invalidates prior verification. The verifier can reconcile old obligations to freshly verified replacements, preserving the mapping and reason. Ambiguous removals or missing business oracles remain visible blockers. The watcher reruns on context changes; it does not repeatedly spend calls on an unchanged blocked revision.
+
+Agent-authored workflows support `cleanupSteps`, executed after failures as well as success. Response captures are collected before assertions, allowing cleanup after a successful create with an incorrect response. Cleanup errors remain failures alongside the original error. Agents can append assertions using `assertionAdditions`; existing expectations cannot be removed or weakened.
+
+For disposable test environments with a declared reset operation, configure:
+
+```json
+{
+  "isolation": {
+    "operationId": "resetFixture",
+    "request": { "headers": { "x-gauntlet-reset": "allowed" } }
+  }
+}
+```
+
+This example is specific to the bundled sample API. Reset runs before and after each independent test or workflow. The operation must exist in the contract and satisfy the target's method/destructive policy. The sample's 400-request limit includes these hooks and cleanup; configure an appropriate bound for your own target. Without reset, the verifier checks setup and cleanup for independence from earlier tests. Cleanup cannot be guaranteed after process termination or loss of target connectivity.
+
+`agents.verifierModel` defaults to the critic model. `quality.requireSemanticVerification` and `quality.requireIsolationReview` default to true for live agents. Offline mode remains a separate deterministic workflow.

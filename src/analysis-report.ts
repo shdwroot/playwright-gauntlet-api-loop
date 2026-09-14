@@ -46,16 +46,19 @@ export async function writeAnalysisReport(result: RunResult, context: unknown = 
   const scenarios = scenarioLedger(discovery, plan);
   const gaps = scenarios.filter(item => item.disposition === 'unimplemented');
   const report = redactAgentData({ formatVersion: 1, runId: result.runId, status: result.status,
-    executionScore: result.finalScore, context, scenarios, gaps, attempts,
+    executionScore: result.finalScore, context, scenarios, gaps, attempts, coverage: result.coverage,
     finalFindings: result.findings, repairs: result.heals, events: result.events, usage,
     limitations: ['Scenario linkage establishes implemented coverage, not proof that an assertion captures every intended business rule.',
-      'Scenario identities are content-derived; semantic reconciliation across rewritten requirements is not yet implemented.',
+      'Changed obligations require explicit model reconciliation to freshly verified replacements; ambiguous removals stay blocked.',
       'This report does not certify that discovery found every requirement.'] });
   await atomicWrite(path.join(result.runDir, 'analysis.json'), stableStringify(report));
   const safe = (value: unknown) => String(value ?? '').replaceAll('|', '\\|').replaceAll('\n', ' ');
   const lines = [`# API Gauntlet analysis: ${result.runId}`, '', `Status: **${result.status}**. Execution score: ${result.finalScore}.`, '',
     `Discovered scenarios: ${scenarios.length}. Implemented: ${scenarios.filter(item => item.tests.length).length}. Unimplemented: ${gaps.length}.`, '',
-    'An execution score is not a completeness score. Scenario-to-test links and discovery itself still require semantic verification.', '',
+    'An execution score is not a completeness score. Semantic verification is a model assessment supported by validated assertion references and fresh execution.', '',
+    '## Persistent obligations', '', '| Scenario | Status | Review |', '| --- | --- | --- |',
+    ...(result.coverage?.obligations ?? []).map(o => `| ${safe(o.candidate.title ?? o.id)} | ${o.status} | ${safe(o.reason)} |`), '',
+    '[Coverage backlog](coverage-backlog.json)', '',
     '## Context revision', '', '```json', stableStringify(context).trim(), '```', '',
     '## Scenario coverage', '', '| Scenario | Disposition | Tests |', '| --- | --- | --- |',
     ...scenarios.map(item => `| ${safe(item.title)} | ${item.disposition} | ${safe(item.tests.join(', '))} |`), '',

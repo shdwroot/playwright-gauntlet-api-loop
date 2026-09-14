@@ -49,7 +49,7 @@
     ],
     "allowDestructive": true,
     "allowProduction": false,
-    "maxRequestsPerRun": 100,
+    "maxRequestsPerRun": 400,
     "maxResponseBytes": 65536
   },
   "agents": {
@@ -59,10 +59,21 @@
     "discoveryModel": "gpt-5.6-luna",
     "leadModel": "gpt-5.6-luna",
     "healerModel": "gpt-5.6-luna",
-    "timeoutMs": 120000
+    "timeoutMs": 120000,
+    "verifierModel": "gpt-5.6-luna"
   },
   "quality": {
     "minimumScore": 95,
-    "minimumOperationCoverage": 1
+    "minimumOperationCoverage": 1,
+    "requireSemanticVerification": true,
+    "requireIsolationReview": true
+  },
+  "isolation": {
+    "operationId": "resetFixture",
+    "request": {
+      "headers": {
+        "x-gauntlet-reset": "allowed"
+      }
+    }
   }
 }

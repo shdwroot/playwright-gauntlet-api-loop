@@ -50,3 +50,9 @@ Live testing exposed two additional issues addressed in this milestone: the heal
 Final milestone verification: **47 regression tests passed**, TypeScript checks passed, and the focused real `gpt-5.6-luna` maintenance check completed **three passing runs**: initial generation, reuse of the validated plan with fresh execution, and a watch-triggered run after a requirement changed. Evidence: `.gauntlet/maintenance-live-1789387249580/acceptance.json`. The script asserts context revision changes and plan-reuse eligibility. This is a small health API acceptance check; multi-format support, broad semantic completeness and the full acceptance campaign remain open.
 
 Additional live-driven improvements include complete-response captures (`$`), workflow-level scenario links, explicit confidence thresholds in agent inputs, stopping repeated rejected proposals, and routing passing execution with coverage gaps back to the builder. Earlier unsuccessful live attempts are retained as evidence; they were not replaced with scripted providers.
+
+## Coverage and isolation milestone
+
+Implemented a durable semantic obligation backlog, an independent live verifier with validated assertion references and fresh execution checks, source-change reconciliation to verified replacements, append-only assertion improvements, workflow cleanup in failure paths, and contract-validated per-test reset hooks. Budgets include reset and cleanup requests. The existing run/watch entry point is unchanged.
+
+Remaining scope: exhaustive discovery cannot be certified by model review; ambiguous requirement removals require resolution. Response-code/dimension coverage matrices, state-graph exploration, mutation testing, and additional WSDL/document adapters remain future work.

@@ -1,3 +1,4 @@
+import type { CoverageBacklog } from './coverage.js';
 import { mkdir, open, readFile, readdir, realpath, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,7 +52,7 @@ export async function withRunLock<T>(generatedDir: string, action: () => Promise
 
 interface MaintenanceState { formatVersion: 1; context: ContextSnapshot; runId: string; status: RunResult['status']; reportPath: string; }
 
-export async function maintainRun(config: GauntletConfig, configPath: string | undefined, execute: (previousPlan?: TestPlan) => Promise<RunResult>): Promise<RunResult> {
+export async function maintainRun(config: GauntletConfig, configPath: string | undefined, execute: (previousPlan?: TestPlan, previousBacklog?: CoverageBacklog) => Promise<RunResult>): Promise<RunResult> {
   return withRunLock(config.generatedDir, async () => {
     const before = await snapshotContext(config, configPath);
     const stateDir = path.join(config.artifactsDir, '.maintenance', sha256(config.generatedDir).slice(0, 16));
@@ -61,16 +62,23 @@ export async function maintainRun(config: GauntletConfig, configPath: string | u
     const saved = await optionalJson<{ revision: string; hash: string; plan: TestPlan }>(savedPath);
     if (saved && sha256(stableStringify(saved.plan)) !== saved.hash) throw new Error('PERSISTED_PLAN_INTEGRITY_FAILED');
     const reusable = config.agents.provider === 'openai' && saved?.revision === before.revision ? saved.plan : undefined;
-    const result = await execute(reusable);
+    const backlogPath = path.join(stateDir, 'coverage-backlog.json');
+    const previousBacklog = await optionalJson<CoverageBacklog>(backlogPath);
+    const result = await execute(reusable, previousBacklog);
     let after: ContextSnapshot | undefined;
     let contextError: string | undefined;
     try { after = await snapshotContext(config, configPath); }
     catch (error) { contextError = error instanceof Error ? error.message : String(error); }
     if (!after || after.revision !== before.revision) {
+      if (result.coverage) for (const obligation of result.coverage.obligations) { obligation.status = 'needs-review'; obligation.proofs = []; }
       result.status = 'BLOCKED';
       result.findings.push({ code: 'CONTEXT_CHANGED_DURING_RUN', severity: 'blocking',
         message: 'Context changed during execution. This result cannot certify the current revision; a fresh run is required.', evidence: [before.revision, after?.revision ?? contextError ?? 'unavailable'] });
       result.events.push({ sequence: result.events.length + 1, at: new Date().toISOString(), state: 'BLOCKED', iteration: result.iterations, detail: 'Context revision invalidated after execution' });
+    }
+    if (result.coverage) {
+      await atomicWrite(backlogPath, stableStringify(result.coverage));
+      await atomicWrite(path.join(result.runDir, 'coverage-backlog.json'), stableStringify(result.coverage));
     }
     const metadata = { ...before, previousRunId: previous?.runId, reusedValidatedPlan: Boolean(reusable),
       changes: contextChanges(previous?.context, before), stableDuringRun: after?.revision === before.revision };

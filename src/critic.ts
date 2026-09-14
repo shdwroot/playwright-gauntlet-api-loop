@@ -47,8 +47,9 @@ export class CriticAgent {
     manifest: GeneratedManifest,
     execution: ExecutionSummary,
     config: GauntletConfig,
+    coverageFindings: CriticFinding[] = [],
   ): Promise<CriticVerdict> {
-    const findings: CriticFinding[] = [];
+    const findings: CriticFinding[] = [...coverageFindings];
     const integrity = await verifyGeneratedArtifacts(config);
     if (!integrity.valid) findings.push(finding('ARTIFACT_INTEGRITY_FAILED', 'Generated artifacts do not match their signed manifest.', integrity.mismatches, 'regenerate-artifacts'));
     if (manifest.specHash !== contract.specHash || plan.specHash !== contract.specHash) {

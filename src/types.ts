@@ -232,9 +232,11 @@ export interface WorkflowPlan {
   id: string;
   title: string;
   steps: WorkflowStepPlan[];
+  cleanupSteps?: WorkflowStepPlan[];
 }
 
 export interface TestPlan {
+  isolation?: { beforeEach: WorkflowStepPlan[]; afterEach: WorkflowStepPlan[] };
   formatVersion: 1;
   projectName: string;
   specPath: string;
@@ -269,12 +271,14 @@ export interface AgentConfig {
   discoveryModel?: string;
   leadModel?: string;
   healerModel?: string;
+  verifierModel?: string;
   timeoutMs?: number;
   openaiBaseUrl?: string;
   apiKeyEnv?: string;
 }
 
 export interface GauntletConfig {
+  isolation?: { operationId: string; request: Record<string, unknown> };
   projectRoot: string;
   projectName: string;
   spec: string;
@@ -298,6 +302,8 @@ export interface GauntletConfig {
     minimumScore: number;
     minimumOperationCoverage: number;
     minimumScenarioCoverage?: number;
+    requireSemanticVerification?: boolean;
+    requireIsolationReview?: boolean;
   };
   discovery: DiscoveryConfig;
 }
@@ -386,6 +392,7 @@ export interface HealAudit {
 }
 
 export interface RunResult {
+  coverage?: import('./coverage.js').CoverageBacklog;
   runId: string;
   status: 'PASSED' | 'FAILED' | 'BLOCKED' | 'STALLED';
   iterations: number;

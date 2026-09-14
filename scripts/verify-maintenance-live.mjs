@@ -16,6 +16,7 @@ assert.equal(selected.agents.provider, 'openai', 'This acceptance check requires
 const listener = createServer(); listener.listen(0, '127.0.0.1'); await once(listener, 'listening');
 const port = listener.address().port;
 await new Promise(resolve => listener.close(resolve));
+process.env.GAUNTLET_BASE_URL = `http://127.0.0.1:${port}`;
 const root = path.resolve('.gauntlet', `maintenance-live-${Date.now()}`);
 await mkdir(root, { recursive: true });
 const original = YAML.parse(await readFile('specs/sample-api.yaml', 'utf8'));
