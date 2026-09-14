@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gauntlet Failure Analysis"
+  short_description: "Turn run evidence into actionable developer findings"
+  default_prompt: "Use $gauntlet-failure-analysis to diagnose this Gauntlet run and write an evidence-backed developer handoff."

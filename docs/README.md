@@ -10,6 +10,7 @@ Start with the [repository README](../README.md) for the live loop and one-comma
 | Look up commands, fields, statuses and artifacts | [Framework reference](../training/reference.md) |
 | Learn locally without paid model calls | [Offline crash course](../training/README.md) |
 | Configure your own live API project | [Bring your own API](../training/walkthroughs/03-bring-your-own-api.md) |
+| Invoke developer analysis from Codex | [Codex analysis skills](codex-agents.md) |
 | Run the Witness fixture or review its production journeys | [Witness example](../examples/the-witness/README.md) |
 | Check current capabilities and remaining objectives | [Objective audit](agentic-objectives-audit.md), [implementation plan](implementation-plan.md) |
 | Distinguish regression, real-model and production evidence | [Validation](validation.md) |

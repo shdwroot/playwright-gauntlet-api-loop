@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gauntlet API Analysis"
+  short_description: "Map API requirements to coverage and developer work"
+  default_prompt: "Use $gauntlet-api-analysis to analyze this API contract and requirements and prepare the developer handoff."
