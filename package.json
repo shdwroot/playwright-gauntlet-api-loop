@@ -28,6 +28,7 @@
     "witness:live:safe": "WITNESS_LIVE_MODE=safe playwright test --config examples/the-witness/live/playwright.config.mjs",
     "witness:live:full": "WITNESS_LIVE_MODE=full playwright test --config examples/the-witness/live/playwright.config.mjs",
     "agentic:verify": "npm run build --silent && node scripts/verify-agentic-live.mjs",
+    "maintenance:verify": "npm run build --silent && node scripts/verify-maintenance-live.mjs",
     "fixture": "node fixtures/sample-api.mjs"
   },
   "engines": {

@@ -12,6 +12,7 @@ import type {
 } from './types.js';
 import { ensureWithin, sha256, stableStringify } from './utils.js';
 import { verifyGeneratedArtifacts } from './generator.js';
+import { scenarioLedger } from './analysis-report.js';
 
 function finding(code: string, message: string, evidence: string[], repair: CriticFinding['repair'] = 'none'): CriticFinding {
   return { code, severity: 'blocking', message, evidence, repair };
@@ -60,6 +61,14 @@ export class CriticAgent {
       findings.push(finding('COVERAGE_GAP', `Operation coverage ${(coverage * 100).toFixed(1)}% is below the required ${(config.quality.minimumOperationCoverage * 100).toFixed(1)}%.`, missing));
     }
     const expectedTests = plan.cases.length + plan.workflows.length;
+    const semanticScenarios = scenarioLedger(plan.discovery, plan).filter(item => item.origin === 'llm'
+      && item.confidence >= config.discovery.minimumConfidence && item.disposition !== 'rejected');
+    const unimplemented = semanticScenarios.filter(item => item.tests.length === 0);
+    const scenarioCoverage = semanticScenarios.length ? 1 - unimplemented.length / semanticScenarios.length : 1;
+    if (scenarioCoverage < (config.quality.minimumScenarioCoverage ?? (config.agents.provider === 'openai' ? 1 : 0))) {
+      findings.push(finding('SCENARIO_COVERAGE_GAP', 'Confident AI-discovered scenarios remain unimplemented. Passing existing tests is insufficient.',
+        unimplemented.map(item => `${item.candidateId}: ${item.title}: ${item.reason}`)));
+    }
     if (execution.tests === 0) findings.push(finding('ZERO_TESTS_EXECUTED', 'A zero-test run can never pass.', [execution.reportPath]));
     if (execution.tests !== expectedTests) findings.push(finding('EXECUTION_PLAN_MISMATCH', `Executed ${execution.tests} tests but the signed plan contains ${expectedTests}.`, [manifest.planHash]));
     if (execution.skipped > 0) findings.push(finding('SKIPPED_TESTS', `${execution.skipped} generated tests were skipped.`, [execution.reportPath]));
@@ -150,6 +159,7 @@ export class CriticAgent {
       configuredPolicy: {
         minimumScore: config.quality.minimumScore,
         minimumOperationCoverage: config.quality.minimumOperationCoverage,
+        scenarioCoverage,
         aiBlockingRule: 'A model finding is blocking only when it reuses an exact code from deterministicFindings. New model concerns are advisory warnings.',
       },
       anonymousCandidate: {

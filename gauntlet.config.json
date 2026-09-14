@@ -15,14 +15,9 @@
     "required": true,
     "sources": [
       {
-        "id": "sample-system-log",
-        "path": "context/sample-system.log",
-        "kind": "log"
-      },
-      {
-        "id": "scenario-guidance",
-        "path": "context/scenario-guidance.md",
-        "kind": "document"
+        "id": "project-context",
+        "path": "context",
+        "kind": "auto"
       }
     ],
     "allowedExtensions": [

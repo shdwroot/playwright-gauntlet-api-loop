@@ -2,15 +2,17 @@ import type { GauntletConfig, NormalizedContract, ResponseAssertion, TestCasePla
 import { allowed, makeCase } from './planner.js';
 import { sha256, stableStringify } from './utils.js';
 
-export const PLAN_PROTOCOL = `Return JSON with cases (new standalone tests), workflows (new ordered tests), repairs (request changes to an existing generated caseId), and riskNotes.
+export const PLAN_PROTOCOL = `Return JSON with cases (new standalone tests), workflows (new ordered tests), repairs (request changes to an existing generated caseId), coverageLinks, and riskNotes.
 A case is {id,title,operationId,status,rationale,request:{pathParams?,query?,headers?,body?,rawBody?,useAuth?},discoveryIds?:string[],assertions?:[{path:"$.bodyField",operator:"equals|not-equals|length-equals|contains|gte|lte",value:any,sourcePointer:"operation, nested contract pointer or referenced component pointer"}]}.
-A workflow is {id,title,steps:[case with optional capture:{variable:"$.responseField"}]}.
+A workflow is {id,title,steps:[case with optional capture:{variable:"$.responseField"}]}. Use capture:{wholeBody:"$"} to capture an entire response for comparison on a subsequent step.
 All tests may use the built-in \${runId}. Workflow request values may additionally use \${variable} from earlier captures or \${runId}. Each step must have an explicit id, unique within its workflow; standalone and workflow IDs must be unique. Captures are scoped to a workflow. Example: a create step with capture:{createdUserId:"$.id"}, then a read step with request:{pathParams:{id:"\${createdUserId}"}}. Capture keys are the variable names; step IDs do not automatically create variables. Use a DIFFERENT capture name for each created record. The read step status and operationId still must be specified.
 A repair is {caseId,request:{...},rationale,setupSteps?:[case with optional capture]}. setupSteps inserts validated preparation steps immediately before the existing case; a standalone case is moved intact into a setup workflow. Use this to establish fixture state without changing assertions. For example, put resetFixture with its required guard header before a list test that intentionally expects the single initial record. The original case and all its assertions still execute. You may repair request data in baseline and agent-authored generated cases, while preserving their test intent and all existing response assertions. No code, shell commands, URLs, deletions, assertion changes, or config changes.
 Use only declared operationId/status pairs. The executor supplies response schemas from the contract. Add concrete response assertions to test scenario-specific behavior, citing its operation or nested contract pointer. Assertions are immutable during healing. In workflows their values may reference earlier captures. Do not claim that an inferred business expectation is explicitly documented; describe inference in rationale.
 Request maps REPLACE that map, body REPLACES the body; omitted fields preserve existing values. Supply synthetic values.
 Preserve baseline coverage. Do not reinterpret a failed scenario or change its intended outcome to make it pass.
 Keep scenarios requiring unavailable business-rule oracles as riskNotes. Create workflows for setup, captures, checks, cleanup.
+coverageLinks is [{caseId,discoveryIds:[candidateId],rationale}]. caseId can identify a case or an entire workflow; generated IDs have an agent- prefix, and IDs declared in this proposal may also be used without that prefix. Use it when an EXISTING case or workflow already implements a discovered scenario; explain how its actual requests/assertions establish that scenario. Do not duplicate existing tests just to attach discovery IDs, and never link a scenario the existing test does not verify. Links are operation-checked and require a fresh execution/critique; they do not themselves prove semantic completeness.
+Only attach discoveryIds whose confidence meets minimumDiscoveryConfidence. Lower-confidence proposals remain report-only; do not guess an eligibility threshold.
 Use unique emails/data and workflow runId to avoid collisions. No raw credentials: useAuth=true loads configured environment credentials. To test a missing credential useAuth=false with no credential header. To test an invalid credential useAuth=false, expected 401/403, and a credential header with a dummy value; the runtime replaces it with a synthetic invalid credential.`;
 
 export function record(value: unknown, label: string): Record<string, unknown> {
@@ -136,7 +138,7 @@ function compileCase(value: unknown, contract: NormalizedContract, config: Gaunt
     const candidates = ids.map((id) => {
       const candidate = plan.discovery?.candidates.find((item) => item.id === id);
       if (!candidate || !candidate.operationId || (candidate.operationId !== operation.operationId && !(candidate.signal === 'semantic-scenario' && relatedOperations.includes(candidate.operationId))) || candidate.disposition === 'reject') throw new Error(`AGENT_DISCOVERY_REFERENCE_INVALID: ${id}`);
-      if (candidate.confidence < config.discovery.minimumConfidence) throw new Error(`AGENT_DISCOVERY_CONFIDENCE: ${id}`);
+      if (candidate.confidence < config.discovery.minimumConfidence) throw new Error(`AGENT_DISCOVERY_CONFIDENCE: ${id} has confidence ${candidate.confidence}, below required ${config.discovery.minimumConfidence}; leave it report-only and do not attach its ID`);
       return candidate;
     });
     testCase.discovery = { signal: candidates[0]!.signal, candidateIds: candidates.map((item) => item.id), evidence: candidates.flatMap((item) => item.evidence) };
@@ -146,7 +148,7 @@ function compileCase(value: unknown, contract: NormalizedContract, config: Gaunt
 
 export function applyAgentPlan(base: TestPlan, output: unknown, contract: NormalizedContract, config: GauntletConfig, allowRepairs = false): TestPlan {
   const proposal = record(output, 'plan');
-  keys(proposal, ['cases', 'workflows', 'repairs', 'riskNotes'], 'plan');
+  keys(proposal, ['cases', 'workflows', 'repairs', 'coverageLinks', 'riskNotes'], 'plan');
   const plan = structuredClone(base);
   const all = () => [...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)];
   const usedIds = new Set([...all().map((item) => item.id), ...plan.workflows.map((item) => item.id)]);
@@ -181,7 +183,7 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
       reserve(testCase.id);
       const capture = record(step.capture ?? {}, 'capture');
       for (const [name, expression] of Object.entries(capture)) {
-        if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name) || variables.has(name) || typeof expression !== 'string' || !/^\$\.[a-zA-Z0-9_.]+$/.test(expression)) throw new Error('AGENT_CAPTURE_INVALID');
+        if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name) || variables.has(name) || typeof expression !== 'string' || !/^\$(?:\.[a-zA-Z0-9_-]+)*$/.test(expression)) throw new Error('AGENT_CAPTURE_INVALID');
         variables.add(name);
       }
       compiled.steps.push({ ...testCase, capture: capture as Record<string, string> });
@@ -223,6 +225,27 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
     const item = record(note, 'riskNote');
     plan.warnings.push(`Agent risk for ${typeof item.operationId === 'string' && item.operationId.trim() ? item.operationId : 'unmapped scenario'}: ${string(item.note, 'risk note')}`);
   }
+  for (const value of list(proposal.coverageLinks, 'coverageLinks')) {
+    const link = record(value, 'coverage link');
+    keys(link, ['caseId', 'discoveryIds', 'rationale'], 'coverage link');
+    const matches = (id: string) => id === link.caseId || id === `agent-${link.caseId}`;
+    const target = all().find(item => matches(item.id));
+    const workflow = plan.workflows.find(item => matches(item.id));
+    const targets = target ? [target] : workflow?.steps ?? [];
+    if (!targets.length) throw new Error(`AGENT_COVERAGE_TARGET_UNKNOWN: ${link.caseId}; use an exact case or workflow ID from currentPlan`);
+    const rationale = string(link.rationale, 'coverage rationale');
+    for (const target of targets) {
+      const related = plan.workflows.find(workflow => workflow.steps.some(step => step.id === target.id))?.steps.map(step => step.operationId) ?? [];
+      const validated = compileCase({ id: 'coverage-validation', operationId: target.operationId,
+        status: target.expected.statuses[0], request: {}, discoveryIds: link.discoveryIds, rationale }, contract, config, plan, related);
+      if (!validated.discovery) throw new Error('AGENT_COVERAGE_IDS_REQUIRED');
+      if (validated.discovery.candidateIds.every(id => target.discovery?.candidateIds.includes(id))) continue;
+      target.discovery = { signal: target.discovery?.signal ?? validated.discovery.signal,
+        candidateIds: [...new Set([...(target.discovery?.candidateIds ?? []), ...validated.discovery.candidateIds])],
+        evidence: [...new Map([...(target.discovery?.evidence ?? []), ...validated.discovery.evidence].map(item => [stableStringify(item), item])).values()],
+        linkRationale: rationale };
+    }
+  }
   // Recheck dependency scope after repairs as well as initial construction.
   for (const workflow of plan.workflows) {
     const variables = new Set(['runId']);
@@ -232,7 +255,7 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
         if (!variables.has(match[1]!)) throw new Error(`AGENT_CAPTURE_UNBOUND: ${step.id} references ${match[1]}`);
       }
       for (const [name, expression] of Object.entries(step.capture)) {
-        if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name) || variables.has(name) || typeof expression !== 'string' || !/^\$\.[a-zA-Z0-9_.]+$/.test(expression)) throw new Error(`AGENT_CAPTURE_INVALID: ${step.id} capture ${name}`);
+        if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name) || variables.has(name) || typeof expression !== 'string' || !/^\$(?:\.[a-zA-Z0-9_-]+)*$/.test(expression)) throw new Error(`AGENT_CAPTURE_INVALID: ${step.id} capture ${name}`);
         variables.add(name);
       }
     }

@@ -11,7 +11,7 @@ import { runPlaywright } from './runner.js';
 import type { CriticFinding, CriticVerdict, ExecutionSummary, GauntletConfig, HealAudit, RunResult, TestPlan } from './types.js';
 import { errorMessage, sha256, stableStringify } from './utils.js';
 
-export async function runAgenticGauntlet(config: GauntletConfig, options: { runId?: string; injectStaleData?: boolean; agentProvider?: AgentProvider } = {}): Promise<RunResult> {
+export async function runAgenticGauntlet(config: GauntletConfig, options: { runId?: string; injectStaleData?: boolean; agentProvider?: AgentProvider; previousPlan?: TestPlan } = {}): Promise<RunResult> {
   const underlying = options.agentProvider ?? createAgentProvider(config.agents);
   const contract = await loadContract(config.spec);
   const ledger = new RunLedger(options.runId ?? newRunId(), config);
@@ -26,6 +26,12 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
   let requests = 0;
   let latestError: string | undefined;
   const seenFailures = new Set<string>();
+  const rejectedProposals = new Map<string, number>();
+  const repeatedRejection = (error: string) => {
+    const count = (rejectedProposals.get(error) ?? 0) + 1;
+    rejectedProposals.set(error, count);
+    return count >= 3;
+  };
   const lead = new LeadAgent(provider);
   const builder = new BuilderAgent(provider);
   const healer = new HealerAgent(provider);
@@ -64,7 +70,7 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
             { code: 'LEAD_TASK', severity: 'info', message: decision.reason, evidence: [] },
             ...(latestError ? [{ code: 'PREVIOUS_PROPOSAL_REJECTED', severity: 'warning' as const, message: latestError, evidence: [] }] : []),
           ];
-          const built = await builder.build(contract, config, feedback, discovery, plan);
+          const built = await builder.build(contract, config, feedback, discovery, plan ?? options.previousPlan);
           await ledger.write(`agents/builder-${turn}.json`, built.invocation);
           const changed = !plan || stableStringify({ cases: built.plan.cases, workflows: built.plan.workflows }) !== stableStringify({ cases: plan.cases, workflows: plan.workflows });
           if (!changed && verdict) return finish(verdict.decision === 'pass' ? 'STALLED' : 'FAILED', 'Builder supplied no executable changes after the previous execution.');
@@ -79,10 +85,12 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
           }
           verdict = undefined;
           latestError = undefined;
+          rejectedProposals.clear();
           allowedActions = ['execute', 'build', 'block'];
         } catch (error) {
           latestError = errorMessage(error);
           await ledger.write(`agents/builder-${turn}-rejected.json`, { error: latestError });
+          if (repeatedRejection(latestError)) return finish('STALLED', `The same proposal validation error recurred three times: ${latestError}`);
           allowedActions = ['build', 'block'];
         }
         continue;
@@ -108,10 +116,12 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
           await generateArtifacts(plan, config);
           verdict = undefined;
           latestError = undefined;
+          rejectedProposals.clear();
           allowedActions = ['execute', 'block'];
         } catch (error) {
           latestError = errorMessage(error);
           await ledger.write(`agents/healer-${turn}-rejected.json`, { error: latestError });
+          if (repeatedRejection(latestError)) return finish('STALLED', `The same proposal validation error recurred three times: ${latestError}`);
           allowedActions = ['heal', 'block'];
         }
         continue;
@@ -140,7 +150,8 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
         if (seenFailures.has(fingerprint)) return finish('STALLED', 'Same test implementation and failure evidence repeated.');
         seenFailures.add(fingerprint);
       }
-      allowedActions = verdict.decision === 'pass' ? ['accept', 'build', 'block'] : ['heal', 'build', 'block'];
+      allowedActions = verdict.decision === 'pass' ? ['accept', 'build', 'block']
+        : execution.status === 'passed' && execution.failed === 0 ? ['build', 'block'] : ['heal', 'build', 'block'];
     }
     return finish('STALLED', 'Agent decision budget exhausted without acceptance.');
   } catch (error) {

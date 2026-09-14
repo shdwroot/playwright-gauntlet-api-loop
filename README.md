@@ -6,7 +6,12 @@ The default configuration runs autonomous agents using **gpt-5.6-luna**. Discove
 # OPENAI_API_KEY is loaded from the project's untracked .env
 npm run gauntlet -- discover
 npm run gauntlet -- run    # start the configured target API first
+npm run gauntlet -- run --watch    # run now, then rerun when configured context changes
 ```
+
+Each full run prints a linkable path to `analysis.md` and saves context revisions, scenario/test links, all attempts and repair evidence. Successful plans can seed subsequent runs when context and framework hashes match; every run still executes and critiques the tests again. Confident AI scenarios without implementations block acceptance by default. See the [implementation plan](docs/implementation-plan.md) for the remaining multi-format ingestion and maintenance work.
+
+The default configuration watches the `context/` directory: adding or editing a supported text source there triggers a new watched run. WSDL, PDF/DOCX, and structured feature-file ingestion remain planned adapters.
 
 `npm run demo` and `gauntlet.offline.config.json` retain the repeatable offline fixture path. Offline discovery is explicitly labeled and makes no LLM calls.
 

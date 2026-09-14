@@ -160,6 +160,7 @@ export async function executeGeneratedCase(
 }
 
 function readCapture(body: unknown, expression: string): unknown {
+  if (expression === '$') return body;
   if (!expression.startsWith('$.')) throw new Error(`CAPTURE_UNSUPPORTED: ${expression}`);
   return expression.slice(2).split('.').reduce<unknown>((current, key) => {
     if (!current || typeof current !== 'object') return undefined;

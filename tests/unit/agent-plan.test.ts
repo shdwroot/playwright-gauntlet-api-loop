@@ -40,6 +40,32 @@ test('agent proposals cannot invent operations, statuses, headers or skip contro
   assert.throws(() => applyAgentPlan(plan, { cases: [testCase] }, contract, { ...config, safety: { ...config.safety, maxRequestsPerRun: 1 } }), /BUDGET/);
 });
 
+test('existing executable cases can receive validated scenario links without duplicate requests', async () => {
+  const { config, contract, plan } = await base();
+  const target = plan.cases.find(item => item.operationId === 'listUsers' && item.kind === 'authorization')!;
+  plan.discovery = { formatVersion: 1, specHash: contract.specHash, discoveryHash: '', sourceCount: 0,
+    totalBytes: 0, sources: [], warnings: [], redactionCount: 0, candidates: [{
+      id: 'auth-scenario', signal: 'semantic-scenario', origin: 'llm', operationId: 'listUsers',
+      confidence: 0.99, disposition: 'report-only', reason: 'Needs a test link', contractPointers: [], evidence: [],
+    }] };
+  const output = { coverageLinks: [{ caseId: target.id, discoveryIds: ['auth-scenario'], rationale: 'Existing case omits auth and expects the declared unauthorized response.' }] };
+  const linked = applyAgentPlan(plan, output, contract, config);
+  assert.equal(linked.cases.length, plan.cases.length);
+  assert.deepEqual(linked.cases.find(item => item.id === target.id)?.expected, target.expected);
+  assert.deepEqual(linked.cases.find(item => item.id === target.id)?.discovery?.candidateIds, ['auth-scenario']);
+  assert.deepEqual(applyAgentPlan(linked, output, contract, config), linked, 'repeated links are not artificial progress');
+  assert.throws(() => applyAgentPlan(plan, { coverageLinks: [{ ...output.coverageLinks[0], discoveryIds: ['unknown'] }] }, contract, config), /DISCOVERY_REFERENCE_INVALID/);
+  const unrelated = plan.cases.find(item => item.operationId === 'getHealth')!;
+  assert.throws(() => applyAgentPlan(plan, { coverageLinks: [{ ...output.coverageLinks[0], caseId: unrelated.id }] }, contract, config), /DISCOVERY_REFERENCE_INVALID/);
+  const workflow = { id: 'auth-checks', title: 'Repeated unauthenticated listing', steps: [
+    { id: 'first', operationId: 'listUsers', status: 401, request: { useAuth: false }, capture: { whole: '$' } },
+    { id: 'second', operationId: 'listUsers', status: 401, request: { useAuth: false }, assertions: [{ path: '$', operator: 'equals', value: '${whole}', sourcePointer: '/paths/~1users/get' }] },
+  ] };
+  const withWorkflow = applyAgentPlan(plan, { workflows: [workflow], coverageLinks: [{ ...output.coverageLinks[0], caseId: 'auth-checks' }] }, contract, config);
+  assert.ok(withWorkflow.workflows.at(-1)?.steps.every(step => step.discovery?.candidateIds.includes('auth-scenario')));
+  assert.equal(withWorkflow.workflows.at(-1)?.steps[0]?.capture.whole, '$');
+});
+
 test('agent workflows validate capture references and account for every request', async () => {
   const { config, contract, plan } = await base();
   const workflow = { id: 'page-roundtrip', title: 'Read using captured offset', steps: [

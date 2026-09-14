@@ -215,6 +215,7 @@ export interface TestCasePlan {
     signal: DiscoverySignal;
     candidateIds: string[];
     evidence: DiscoveryEvidence[];
+    linkRationale?: string;
   };
   oracleProvenance: Array<{
     authority: 'openapi';
@@ -296,6 +297,7 @@ export interface GauntletConfig {
   quality: {
     minimumScore: number;
     minimumOperationCoverage: number;
+    minimumScenarioCoverage?: number;
   };
   discovery: DiscoveryConfig;
 }
@@ -349,6 +351,8 @@ export interface ExecutionSummary {
   stderrPath: string;
   failureFingerprints: string[];
   failures?: Array<{ title: string; messages: string[]; exchanges: unknown[] }>;
+  observations?: Array<{ title: string; status: string; startedAt?: string; exchanges: unknown[] }>;
+  observationsOmitted?: number;
 }
 
 export interface CriticFinding {

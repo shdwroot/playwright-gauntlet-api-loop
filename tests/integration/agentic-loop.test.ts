@@ -36,8 +36,8 @@ async function runFixture(defect = false) {
         output = { cases: [{ id: 'last-page', title: 'Valid smallest page at distant offset', operationId: 'listUsers', status: 200,
           rationale: 'Valid pagination should return an empty page.', assertions: [{ path: '$.data', operator: 'length-equals', value: 0, sourcePointer: '/paths/~1users/get' }], request: { query: { limit: defect ? 1 : 0, offset: 10000 } }, discoveryIds: [candidateId] }],
           workflows: [{ id: 'read-created', title: 'Create, read and remove a user', steps: [
-            { id: 'create-new', title: 'Create user', operationId: 'createUser', status: 201, rationale: 'Set up unique test data', request: { body: { name: 'Agent User', email: 'agent-${runId}@example.test' } }, capture: { userId: '$.id' } },
-            { id: 'read-new', title: 'Read captured user', operationId: 'getUser', status: 200, rationale: 'Read newly created record', request: { pathParams: { id: '${userId}' } } },
+            { id: 'create-new', title: 'Create user', operationId: 'createUser', status: 201, rationale: 'Set up unique test data', request: { body: { name: 'Agent User', email: 'agent-${runId}@example.test' } }, capture: { userId: '$.id', createdBody: '$' } },
+            { id: 'read-new', title: 'Read captured user', operationId: 'getUser', status: 200, rationale: 'Read newly created record', request: { pathParams: { id: '${userId}' } }, assertions: [{ path: '$', operator: 'equals', value: '${createdBody}', sourcePointer: '/paths/~1users~1{id}/get' }] },
             { id: 'delete-new', title: 'Remove test user', operationId: 'deleteUser', status: 204, rationale: 'Clean up created record', request: { pathParams: { id: '${userId}' } } },
           ] }], repairs: [], riskNotes: [] };
       } else if (system.startsWith('Investigate actual')) {
@@ -96,6 +96,11 @@ test('agentic HTTP provider discovers prose, implements cases/workflows, repairs
   assert.deepEqual(plan.cases.find((item) => item.id === 'agent-last-page')?.expected.statuses, [200]);
   assert.equal(plan.cases.find((item) => item.id === 'agent-last-page')?.query.limit, 1);
   assert.equal(plan.workflows.find((item) => item.id === 'agent-read-created')?.steps.length, 3);
+  const report = JSON.parse(await readFile(path.join(result.runDir, 'analysis.json'), 'utf8'));
+  assert.equal(report.attempts.length, 2);
+  assert.equal(report.attempts[0].execution.failed > 0, true);
+  assert.equal(report.attempts[1].execution.failed, 0);
+  assert.equal(report.scenarios.find((item: { origin: string }) => item.origin === 'llm').disposition, 'implemented');
 });
 
 test('agent healer leaves a genuine API schema defect red even when model critic says pass', { timeout: 240_000 }, async () => {

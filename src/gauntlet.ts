@@ -1,7 +1,7 @@
 import { runAgenticGauntlet } from './agent-loop.js';
 import type { AgentProvider } from './agents.js';
 import path from 'node:path';
-import type { CriticFinding, HealAudit, RunResult } from './types.js';
+import type { CriticFinding, HealAudit, RunResult, TestPlan } from './types.js';
 import { loadConfig } from './config.js';
 import { loadContract } from './openapi.js';
 import { BuilderAgent, createAgentProvider } from './agents.js';
@@ -12,6 +12,7 @@ import { auditedAgentProvider, newRunId, RunLedger } from './evidence.js';
 import { runPlaywright } from './runner.js';
 import { sha256, stableStringify } from './utils.js';
 import { discoverScenarios } from './discovery.js';
+import { maintainRun, withRunLock } from './maintenance.js';
 
 export interface RunOptions {
   configPath?: string;
@@ -21,8 +22,12 @@ export interface RunOptions {
 }
 
 export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> {
-  const { config } = await loadConfig(options.configPath);
-  if (config.agents.provider === 'openai') return runAgenticGauntlet(config, options);
+  const { config, configPath } = await loadConfig(options.configPath);
+  return maintainRun(config, configPath, previousPlan => runOnce(config, options, previousPlan));
+}
+
+async function runOnce(config: Awaited<ReturnType<typeof loadConfig>>['config'], options: RunOptions, previousPlan?: TestPlan): Promise<RunResult> {
+  if (config.agents.provider === 'openai') return runAgenticGauntlet(config, { ...options, ...(previousPlan ? { previousPlan } : {}) });
   const contract = await loadContract(config.spec);
   const discovery = await discoverScenarios(contract, config);
   const runId = options.runId ?? newRunId();
@@ -114,6 +119,10 @@ export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> 
 
 export async function generateOnly(configPath?: string): Promise<{ manifestPath: string; cases: number; workflows: number }> {
   const { config } = await loadConfig(configPath);
+  return withRunLock(config.generatedDir, () => generateOnce(config));
+}
+
+async function generateOnce(config: Awaited<ReturnType<typeof loadConfig>>['config']): Promise<{ manifestPath: string; cases: number; workflows: number }> {
   const contract = await loadContract(config.spec);
   let provider = createAgentProvider(config.agents);
   let ledger: RunLedger | undefined;

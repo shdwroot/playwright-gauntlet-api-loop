@@ -113,7 +113,7 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
     projectRoot: root,
     projectName: requireString(raw, 'projectName'),
     spec: ensureWithin(root, path.resolve(root, requireString(raw, 'spec'))),
-    baseUrl: requireString(raw, 'baseUrl'),
+    baseUrl: process.env.GAUNTLET_BASE_URL?.trim() || requireString(raw, 'baseUrl'),
     generatedDir: ensureWithin(root, path.resolve(root, requireString(raw, 'generatedDir'))),
     artifactsDir: ensureWithin(root, path.resolve(root, requireString(raw, 'artifactsDir'))),
     seed: finiteNumber(raw, 'seed', 42),
@@ -145,6 +145,7 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
     quality: {
       minimumScore: Math.min(100, Math.max(0, finiteNumber(qualityRaw, 'minimumScore', 95))),
       minimumOperationCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumOperationCoverage', 1))),
+      minimumScenarioCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumScenarioCoverage', provider === 'openai' ? 1 : 0))),
     },
     discovery: discoveryConfig(raw, root),
   };

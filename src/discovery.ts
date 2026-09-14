@@ -59,7 +59,7 @@ function sourceKind(configured: DiscoverySourceConfig, extension: string): 'log'
   return ['.md', '.txt'].includes(extension) ? 'document' : 'log';
 }
 
-async function enumerate(config: GauntletConfig): Promise<SourceFile[]> {
+export async function enumerateSources(config: GauntletConfig): Promise<SourceFile[]> {
   const discovered: SourceFile[] = [];
   const seen = new Set<string>();
   const canonicalRoot = await realpath(config.projectRoot);
@@ -153,7 +153,7 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
     const disabled = { formatVersion: 1 as const, specHash: contract.specHash, sourceCount: 0, totalBytes: 0, sources: [], candidates: [], warnings: ['Discovery is disabled; the plan is contract-only.'], redactionCount: 0 };
     return { ...disabled, discoveryHash: sha256(stableStringify(disabled)) };
   }
-  const files = config.discovery.enabled ? await enumerate(config) : [];
+  const files = config.discovery.enabled ? await enumerateSources(config) : [];
   const documents: Array<{ sourceIndex: number; lines: Array<{ number: number; text: string }> }> = [];
   let agentCharacters = 0;
   const sources: DiscoverySourceSnapshot[] = [];

@@ -7,6 +7,21 @@ import { loadConfig } from '../../src/config.js';
 import { stableStringify } from '../../src/utils.js';
 import type { JsonSchema } from '../../src/types.js';
 
+test('API target environment override takes precedence and still enforces the host policy', async () => {
+  const previous = process.env.GAUNTLET_BASE_URL;
+  try {
+    process.env.GAUNTLET_BASE_URL = ' http://localhost:4567 ';
+    assert.equal((await loadConfig('gauntlet.offline.config.json')).config.baseUrl, 'http://localhost:4567');
+    process.env.GAUNTLET_BASE_URL = 'https://unapproved.example.test';
+    await assert.rejects(loadConfig('gauntlet.offline.config.json'), /TARGET_DENIED/);
+    process.env.GAUNTLET_BASE_URL = '';
+    assert.equal((await loadConfig('gauntlet.offline.config.json')).config.baseUrl, 'http://127.0.0.1:4010');
+  } finally {
+    if (previous === undefined) delete process.env.GAUNTLET_BASE_URL;
+    else process.env.GAUNTLET_BASE_URL = previous;
+  }
+});
+
 test('normalizes the sample contract with stable traceability', async () => {
   const contract = await loadContract(path.resolve('specs/sample-api.yaml'));
   assert.equal(contract.operations.length, 6);

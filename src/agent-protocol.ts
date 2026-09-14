@@ -10,6 +10,7 @@ const testCase = object({ id: text, title: text, operationId: text, status: inte
 const plan = object({
   cases: array(testCase), workflows: array(object({ id: text, title: text, steps: array(testCase) })),
   repairs: array(object({ caseId: text, rationale: text, requestJson: text, setupSteps: array(testCase) })),
+  coverageLinks: array(object({ caseId: text, discoveryIds: array(text), rationale: text })),
   riskNotes: array(object({ operationId: text, note: text })),
 });
 

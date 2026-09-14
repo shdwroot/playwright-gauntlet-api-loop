@@ -5,6 +5,7 @@ import { discoverOnly, generateOnly, runGauntlet } from './gauntlet.js';
 import { loadConfig, loadProjectEnvironment } from './config.js';
 import { loadContract } from './openapi.js';
 import { errorMessage } from './utils.js';
+import { snapshotContext, watchRevisions } from './maintenance.js';
 
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -18,7 +19,7 @@ Usage:
   api-gauntlet doctor [--config path]
   api-gauntlet discover [--config path]
   api-gauntlet generate [--config path]
-  api-gauntlet run [--config path] [--inject-stale-data]
+  api-gauntlet run [--config path] [--watch] [--inject-stale-data]
   api-gauntlet report <run-id-or-directory> [--config path]
 
 Agentic mode: append --agentic --model <model-id> (or set OPENAI_MODEL). Requires OPENAI_API_KEY.
@@ -63,8 +64,24 @@ async function main(): Promise<void> {
     return;
   }
   if (command === 'run' || command === 'loop') {
+    if (args.includes('--watch')) {
+      const controller = new AbortController();
+      const stop = () => { console.error('Stopping watch after the active run finishes.'); controller.abort(); };
+      process.once('SIGINT', stop); process.once('SIGTERM', stop);
+      try {
+        await watchRevisions({ signal: controller.signal,
+          revision: async () => { const loaded = await loadConfig(configPath); return (await snapshotContext(loaded.config, loaded.configPath)).revision; },
+          execute: async () => {
+            const result = await runGauntlet(configPath ? { configPath } : {});
+            console.log(JSON.stringify({ status: result.status, runId: result.runId, report: path.join(result.runDir, 'analysis.md') }));
+          },
+          onError: error => console.error(errorMessage(error)),
+        });
+      } finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
+      return;
+    }
     const result = await runGauntlet({ ...(configPath ? { configPath } : {}), injectStaleData: args.includes('--inject-stale-data') });
-    console.log(JSON.stringify({ status: result.status, runId: result.runId, iterations: result.iterations, score: result.finalScore, runDir: result.runDir, hardFindings: result.findings.filter((finding) => finding.severity === 'blocking').map((finding) => finding.code) }, null, 2));
+    console.log(JSON.stringify({ status: result.status, runId: result.runId, iterations: result.iterations, score: result.finalScore, runDir: result.runDir, report: path.join(result.runDir, 'analysis.md'), hardFindings: result.findings.filter((finding) => finding.severity === 'blocking').map((finding) => finding.code) }, null, 2));
     if (result.status === 'FAILED') process.exitCode = 1;
     if (result.status === 'BLOCKED' || result.status === 'STALLED') process.exitCode = 2;
     return;

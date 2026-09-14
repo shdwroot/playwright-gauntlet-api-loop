@@ -7,7 +7,7 @@ import type { ExecutionSummary, GauntletConfig } from './types.js';
 import { redactAgentData } from './agent-redaction.js';
 import { atomicWrite, sha256 } from './utils.js';
 
-interface PlaywrightResult { status?: string; error?: { message?: string }; errors?: Array<{ message?: string }>; attachments?: Array<{ name?: string; body?: string }> }
+interface PlaywrightResult { status?: string; startTime?: string; error?: { message?: string }; errors?: Array<{ message?: string }>; attachments?: Array<{ name?: string; body?: string }> }
 interface PlaywrightTest { title?: string; expectedStatus?: string; results?: PlaywrightResult[] }
 interface PlaywrightSpec { title?: string; tests?: PlaywrightTest[] }
 interface PlaywrightSuite { specs?: PlaywrightSpec[]; suites?: PlaywrightSuite[] }
@@ -26,6 +26,26 @@ export function summarizePlaywrightReport(report: PlaywrightReport, exitCode: nu
   const failures = tests.flatMap((test) => test.results ?? []).filter((result) => result.status === 'failed' || result.status === 'timedOut');
   const messages = failures.flatMap((result) => [result.error?.message, ...(result.errors ?? []).map((error) => error.message)]).filter((message): message is string => Boolean(message));
   const infrastructure = /TARGET_UNREACHABLE|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/.test(combinedOutput);
+  let observationCharacters = 0;
+  const observations = tests.map(test => {
+    const result = test.results?.at(-1);
+    return { title: test.title ?? 'unknown', status: result?.status ?? 'unknown',
+      ...(result?.startTime ? { startedAt: result.startTime } : {}),
+      exchanges: (result?.attachments ?? []).filter(attachment => attachment.name?.endsWith('-exchange.json') && attachment.body).slice(0, 20).map(attachment => {
+        if (observationCharacters >= 100_000) return { unavailable: 'Observation budget exhausted; inspect the full Playwright report.' };
+        try {
+          const exchange = redactAgentData(JSON.parse(Buffer.from(attachment.body!, 'base64').toString('utf8'))) as Record<string, unknown>;
+          const compact = (value: unknown) => {
+            const text = JSON.stringify(value);
+            return text && text.length > 2000 ? { truncated: true, preview: text.slice(0, 2000) } : value;
+          };
+          const observation = { request: compact(exchange.request), response: compact(exchange.response) };
+          observationCharacters += JSON.stringify(observation).length;
+          return observation;
+        } catch { return { unavailable: 'Exchange could not be decoded.' }; }
+      }),
+    };
+  }).sort((left, right) => (left.startedAt ?? '').localeCompare(right.startedAt ?? ''));
   return {
     exitCode,
     status: exitCode === 0
@@ -37,6 +57,8 @@ export function summarizePlaywrightReport(report: PlaywrightReport, exitCode: nu
     skipped: statuses.filter((status) => status === 'skipped').length,
     durationMs,
     ...paths,
+    observations: observations.slice(0, 200),
+    observationsOmitted: Math.max(0, observations.length - 200),
     failures: tests.filter((test) => test.results?.some((result) => result.status === 'failed' || result.status === 'timedOut')).slice(0, 50).map((test) => ({
       title: test.title ?? 'unknown',
       messages: (test.results ?? []).flatMap((result) => [result.error?.message, ...(result.errors ?? []).map((error) => error.message)])
