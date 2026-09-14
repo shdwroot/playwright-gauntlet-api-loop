@@ -10,6 +10,33 @@ import type { AgentProvider } from '../../src/agents.js';
 function discovery(): DiscoveryReport { return { formatVersion: 1, specHash: 'a', discoveryHash: '', sourceCount: 0, totalBytes: 0, sources: [], warnings: [], redactionCount: 0,
   candidates: [{ id: 'semantic-1', origin: 'llm', signal: 'semantic-scenario', confidence: 1, disposition: 'report-only', reason: '', evidence: [], contractPointers: [] }] }; }
 
+test('unlinked criteria remain blocking without requesting redundant model gap assessments', async () => {
+  const {config} = await loadConfig('gauntlet.offline.config.json');config.quality.requireSemanticVerification=true;
+  const plan = buildPlan(await loadContract(config.spec),config);
+  const backlog = reconcileCoverage(discovery());
+  const provider: AgentProvider = {async invoke(_role,_model,_system,input) {
+    const state = input as {obligations:unknown[];unverifiedObligations:Array<{id:string}>};
+    assert.deepEqual(state.obligations,[]);
+    assert.equal(state.unverifiedObligations[0]?.id,'semantic-1');
+    return {agentId:'test',model:'test',promptHash:'',responseHash:'',output:{assessments:[]}};
+  }};
+  const review = await verifyCoverage(provider,config,plan,{observations:[]} as unknown as ExecutionSummary,backlog);
+  assert.equal(review.findings[0]?.code,'SEMANTIC_COVERAGE_GAP');
+  assert.equal(backlog.obligations[0]?.status,'gap');
+  assert.match(backlog.obligations[0]!.reason,/No linked passing test/);
+});
+
+test('cleanup proof requires a passing complete workflow, including cleanup',async()=>{
+  const {config}=await loadConfig('gauntlet.offline.config.json');config.quality.requireSemanticVerification=true;
+  const plan=buildPlan(await loadContract(config.spec),config);const cleanup={...plan.cases[0]!,id:'cleanup-step',capture:{},discovery:{signal:'semantic-scenario' as const,candidateIds:['semantic-1'],evidence:[]}};
+  plan.workflows.push({id:'with-cleanup',title:'cleanup proof',steps:[{...plan.cases[1]!,capture:{}}],cleanupSteps:[cleanup]});
+  const provider:AgentProvider={async invoke(){return{agentId:'test',model:'test',promptHash:'',responseHash:'',output:{assessments:[{obligationId:'semantic-1',verdict:'verified',reason:'Cleanup response assertion passed',proofs:[{testId:'cleanup-step',assertionPointers:['/expected/statuses']}]}]}};}};
+  const execution={observations:[{title:'[workflow:with-cleanup] cleanup proof',status:'passed',exchanges:[]}]} as unknown as ExecutionSummary;
+  assert.equal((await verifyCoverage(provider,config,plan,execution,reconcileCoverage(discovery()))).findings.length,0);
+  execution.observations![0]!.status='failed';
+  assert.equal((await verifyCoverage(provider,config,plan,execution,reconcileCoverage(discovery()))).findings[0]?.code,'SEMANTIC_COVERAGE_GAP');
+});
+
 test('backlog retains omitted discoveries and never carries verification across runs or source changes', () => {
   const old = reconcileCoverage(discovery()); old.obligations[0]!.status = 'verified';
   const fresh = discovery(); fresh.candidates = [];
@@ -79,4 +106,55 @@ test('verifier transport requires one keyed review per obligation and decodes ke
   const decoded = decodeAgentOutput({ assessments: { one: { verdict: 'gap', reason: 'missing', proofs: [] } }, isolation: { 'case-a': { verdict: 'isolated', reason: 'stateless' } } }) as any;
   assert.equal(decoded.assessments[0].obligationId, 'one');
   assert.equal(decoded.isolation[0].unitId, 'case-a');
+});
+
+test('builder transport excludes low-confidence IDs and invented provenance before a live call', async () => {
+  const { agentOutputSchema } = await import('../../src/agent-protocol.js');
+  const schema = agentOutputSchema('builder', { minimumDiscoveryConfidence: 0.85,
+    discovery: { candidates: [{id:'accepted',confidence:1,disposition:'report-only',operationId:'orders'},{id:'uncertain',confidence:0.8,disposition:'report-only',operationId:'orders'},{id:'unmapped',confidence:1,disposition:'report-only'}] },
+    contract: {operations:[{sourcePointer:'/paths/~1orders/get'}]} }) as any;
+  const authored = schema.properties.cases.items.properties;
+  assert.deepEqual(authored.discoveryIds.items.enum, ['accepted']);
+  assert.deepEqual(authored.assertions.items.properties.sourcePointer.enum, ['/paths/~1orders/get']);
+  assert.ok(authored.assertions.items.properties.value);
+  assert.equal(authored.assertions.items.properties.valueJson,undefined);
+  assert.ok(authored.request.properties.bodyJson);
+  assert.equal(authored.requestJson,undefined);
+  assert.deepEqual(authored.parallelGroup.enum,['']);
+  assert.equal(schema.properties.workflows.items.properties.steps.minItems,1);
+  const {decodeAgentOutput}=await import('../../src/agent-protocol.js');
+  assert.deepEqual(decodeAgentOutput({value:'${captured}'}),{value:'${captured}'});
+  const lead = agentOutputSchema('lead', {allowedActions:['execute']}) as any;
+  assert.deepEqual(lead.properties.action.enum, ['execute']);
+});
+
+test('typed request envelopes keep payload fields inside body and distinguish omitted from cleared maps', async()=>{
+  const {decodeAgentOutput}=await import('../../src/agent-protocol.js');
+  const envelope={pathParams:null,query:null,headers:null,bodyJson:'{"username":"sample","password":"synthetic"}',rawBody:null,useAuth:null};
+  assert.deepEqual(decodeAgentOutput({request:envelope}),{request:{body:{username:'sample',password:'synthetic'}}});
+  assert.deepEqual(decodeAgentOutput({request:{...envelope,bodyJson:null,query:[],headers:[{name:'authorization',value:'Bearer ${customerAToken}'}],useAuth:false}}),{request:{query:{},headers:{authorization:'Bearer ${customerAToken}'},useAuth:false}});
+  assert.throws(()=>decodeAgentOutput({request:{...envelope,bodyJson:'{invalid'}}),/bodyJson contains invalid JSON/);
+  assert.throws(()=>decodeAgentOutput({request:{...envelope,headers:[{name:'x',value:'a'},{name:'x',value:'b'}]}}),/map entries/);
+  assert.throws(()=>decodeAgentOutput({request:{...envelope,username:'lost'}}),/unsupported request envelope/);
+  assert.deepEqual(decodeAgentOutput({requestJson:'{"body":{"username":"legacy"}}'}),{request:{body:{username:'legacy'}}});
+});
+
+test('conditional assertions and response schemas prove only branches observed in a passing execution',async()=>{
+  const {config}=await loadConfig('gauntlet.offline.config.json');config.quality.requireSemanticVerification=true;
+  const plan=buildPlan(await loadContract(config.spec),config);const item=plan.cases[0]!;
+  item.discovery={signal:'semantic-scenario',candidateIds:['semantic-1'],evidence:[]};
+  item.expected={statuses:[200,400],variants:[{status:200,schema:{type:'object'}},{status:400,schema:{type:'string'}}]};
+  item.assertions=[{path:'$.mode',operator:'equals',value:'reader',sourcePointer:'/response',whenStatuses:[200]}];
+  let pointer='/assertions/0';
+  const provider:AgentProvider={async invoke(){return{agentId:'test',model:'test',promptHash:'',responseHash:'',output:{assessments:[{obligationId:'semantic-1',verdict:'verified',reason:'branch checked',proofs:[{testId:item.id,assertionPointers:[pointer]}]}]}};}};
+  const execution={observations:[{title:`[${item.id}] test`,status:'passed',exchanges:[{request:{caseId:item.id},response:{status:400}}]}]} as unknown as ExecutionSummary;
+  const review=()=>verifyCoverage(provider,config,plan,execution,reconcileCoverage(discovery()));
+  assert.equal((await review()).findings.length,1);
+  pointer='/expected/variants/0/schema/type';assert.equal((await review()).findings.length,1);
+  pointer='/expected/variants/1/schema/type';assert.equal((await review()).findings.length,0);
+  execution.observations!.push({title:`[${item.id}] test`,status:'failed',exchanges:[{request:{caseId:item.id},response:{status:200}}]} as never);
+  pointer='/assertions/0';assert.equal((await review()).findings.length,1);
+  execution.observations![0]!.exchanges=[{request:{caseId:item.id},response:{status:200}}];
+  assert.equal((await review()).findings.length,0);
+  execution.observations![0]!.exchanges=[];assert.equal((await review()).findings.length,1);
 });

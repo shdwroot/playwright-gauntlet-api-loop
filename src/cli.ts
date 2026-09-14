@@ -6,6 +6,7 @@ import { loadConfig, loadProjectEnvironment } from './config.js';
 import { loadContract } from './openapi.js';
 import { errorMessage } from './utils.js';
 import { snapshotContext, watchRevisions } from './maintenance.js';
+import { onboard, refreshOnboardedProject } from './onboarding.js';
 
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -20,6 +21,7 @@ Usage:
   api-gauntlet discover [--config path]
   api-gauntlet generate [--config path]
   api-gauntlet run [--config path] [--watch] [--inject-stale-data]
+  api-gauntlet run --url <API-or-OpenAPI-URL> [--context path ...] [--source auto|path] [--project-dir path] [--model model]
   api-gauntlet report <run-id-or-directory> [--config path]
 
 Agentic mode: append --agentic --model <model-id> (or set OPENAI_MODEL). Requires the configured API key (OPENAI_API_KEY by default).
@@ -32,8 +34,18 @@ Watch mode reports each run; use one-shot run for a CI exit code.`);
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0] ?? 'help';
-  const configPath = option(args, '--config');
+  let configPath = option(args, '--config');
   loadProjectEnvironment(configPath);
+  const url = option(args, '--url');
+  if (url) {
+    if (configPath) throw new Error('Choose --url or --config, not both');
+    if (!['run', 'discover', 'generate', 'doctor'].includes(command)) throw new Error('URL_COMMAND_INVALID');
+    configPath = await onboard({ url, context: args.flatMap((value, index) => value === '--context' && args[index + 1] ? [args[index + 1]!] : []),
+      directory: option(args, '--project-dir'), model: option(args, '--model'), source: option(args, '--source'), allowProduction: args.includes('--allow-production') });
+    // An explicitly supplied target takes precedence over an unrelated .env URL.
+    process.env.GAUNTLET_BASE_URL = (JSON.parse(await readFile(configPath, 'utf8')) as { baseUrl: string }).baseUrl;
+    process.env.GAUNTLET_AGENT_PROVIDER = 'openai';
+  }
   if (args.includes('--agentic')) {
     const model = option(args, '--model') ?? process.env.OPENAI_MODEL;
     if (!model || model.startsWith('--')) throw new Error('AGENT_MODEL_REQUIRED: use --model or set OPENAI_MODEL');
@@ -73,6 +85,7 @@ async function main(): Promise<void> {
         await watchRevisions({ signal: controller.signal,
           revision: async () => { const loaded = await loadConfig(configPath); return (await snapshotContext(loaded.config, loaded.configPath)).revision; },
           execute: async () => {
+            if (configPath) await refreshOnboardedProject(configPath);
             const result = await runGauntlet(configPath ? { configPath } : {});
             console.log(JSON.stringify({ status: result.status, runId: result.runId, report: path.join(result.runDir, 'analysis.md') }));
           },
@@ -82,7 +95,14 @@ async function main(): Promise<void> {
       return;
     }
     const result = await runGauntlet({ ...(configPath ? { configPath } : {}), injectStaleData: args.includes('--inject-stale-data') });
-    console.log(JSON.stringify({ status: result.status, runId: result.runId, iterations: result.iterations, score: result.finalScore, runDir: result.runDir, report: path.join(result.runDir, 'analysis.md'), hardFindings: result.findings.filter((finding) => finding.severity === 'blocking').map((finding) => finding.code) }, null, 2));
+    const blockers = result.findings.filter(finding => finding.severity === 'blocking');
+    console.log(JSON.stringify({ status: result.status, runId: result.runId, iterations: result.iterations, score: result.finalScore,
+      runDir: result.runDir, report: path.join(result.runDir, 'analysis.md'),
+      hardFindings: blockers.map(finding => finding.code),
+      reasons: [...new Set(blockers.map(finding => finding.message))],
+      coverage: result.coverage ? { verified: result.coverage.obligations.filter(o => o.status === 'verified').length,
+        outstanding: result.coverage.obligations.filter(o => o.status !== 'verified' && o.status !== 'superseded').length } : undefined,
+    }, null, 2));
     if (result.status === 'FAILED') process.exitCode = 1;
     if (result.status === 'BLOCKED' || result.status === 'STALLED') process.exitCode = 2;
     return;

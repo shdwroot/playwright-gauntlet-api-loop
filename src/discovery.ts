@@ -1,4 +1,5 @@
 import { createAgentProvider, type AgentProvider } from './agents.js';
+import { requirementCandidates } from './requirements.js';
 import { record, string } from './agent-plan.js';
 import { redactAgentData, redactAgentText } from './agent-redaction.js';
 import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises';
@@ -157,6 +158,7 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
   const documents: Array<{ sourceIndex: number; lines: Array<{ number: number; text: string }> }> = [];
   let agentCharacters = 0;
   const sources: DiscoverySourceSnapshot[] = [];
+  const explicitRequirements = new Map<string, DiscoveryCandidate>();
   const extracted: ExtractedSignal[] = [];
   const warnings: string[] = [];
   let redactionCount = 0;
@@ -216,6 +218,9 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
       status: findings.length ? 'warning' : 'parsed',
       findings: [...new Set(findings)].sort(),
     });
+    if (path.extname(file.absolutePath).toLowerCase() === '.json') {
+      for (const candidate of requirementCandidates(raw, sources.at(-1)!, contract)) explicitRequirements.set(candidate.id, candidate);
+    }
   }
   if (extracted.length > config.discovery.maxCandidates) throw new Error(`DISCOVERY_CANDIDATE_LIMIT: ${extracted.length}`);
   const byKey = new Map<string, DiscoveryCandidate>();
@@ -260,7 +265,7 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
     }
     byKey.set(key, { id: `discovery-${sha256(key).slice(0, 12)}`, ...candidateWithoutId });
   }
-  const candidates = [...byKey.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const candidates = [...byKey.values(), ...explicitRequirements.values()].sort((a, b) => a.id.localeCompare(b.id));
   const perOperation = new Map<string, number>();
   for (const candidate of candidates.filter((item) => item.disposition === 'generate')) {
     const count = (perOperation.get(candidate.operationId!) ?? 0) + 1;

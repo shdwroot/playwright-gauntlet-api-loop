@@ -17,6 +17,8 @@ function numericSample(schema: JsonSchema, mode: SampleMode): number {
   if (mode === 'invalid') {
     if (typeof schema.minimum === 'number') return schema.minimum - 1;
     if (typeof schema.maximum === 'number') return schema.maximum + 1;
+    if (typeof schema.exclusiveMinimum === 'number') return schema.exclusiveMinimum;
+    if (typeof schema.exclusiveMaximum === 'number') return schema.exclusiveMaximum;
   }
   if (mode === 'boundary') {
     if (typeof schema.maximum === 'number') return schema.maximum;
@@ -29,10 +31,17 @@ function numericSample(schema: JsonSchema, mode: SampleMode): number {
 
 export function sampleFromSchema(schema: JsonSchema, seed: number, key: string, mode: SampleMode = 'valid'): unknown {
   if (mode === 'conflict' && schema['x-gauntlet-conflict-value'] !== undefined) return schema['x-gauntlet-conflict-value'];
-  if (schema.const !== undefined) return schema.const;
+  if (schema.const !== undefined) return mode === 'invalid' ? (schema.const === null ? true : null) : schema.const;
   if (schema.example !== undefined && mode === 'valid') return schema.example;
   if (schema.default !== undefined && mode === 'valid') return schema.default;
-  if (schema.enum?.length) return schema.enum[mode === 'boundary' ? schema.enum.length - 1 : 0];
+  if (schema.enum?.length) {
+    if (mode === 'invalid') {
+      let outside = '__gauntlet_invalid_enum__';
+      while (schema.enum.includes(outside)) outside += '_';
+      return outside;
+    }
+    return schema.enum[mode === 'boundary' ? schema.enum.length - 1 : 0];
+  }
   const composite = schema.oneOf?.[0] ?? schema.anyOf?.[0];
   if (composite) return sampleFromSchema(composite, seed, key, mode);
   if (schema.allOf?.length) {
@@ -56,8 +65,10 @@ export function sampleFromSchema(schema: JsonSchema, seed: number, key: string, 
       return Array.from({ length: Math.min(count, 10) }, (_, index) => sampleFromSchema(schema.items ?? {}, seed, `${key}.${index}`, mode));
     }
     case 'integer':
+      if (mode === 'invalid' && [schema.minimum,schema.maximum,schema.exclusiveMinimum,schema.exclusiveMaximum].every(v=>v === undefined)) return 'not-an-integer';
       return Math.trunc(numericSample(schema, mode));
     case 'number':
+      if (mode === 'invalid' && [schema.minimum,schema.maximum,schema.exclusiveMinimum,schema.exclusiveMaximum].every(v=>v === undefined)) return 'not-a-number';
       return numericSample(schema, mode);
     case 'boolean':
       return true;
@@ -69,6 +80,10 @@ export function sampleFromSchema(schema: JsonSchema, seed: number, key: string, 
       if (mode === 'invalid') {
         if ((schema.minLength ?? 0) > 0) return '';
         if (schema.format === 'email') return 'not-an-email';
+      }
+      if (schema.pattern && /^\^?[A-Za-z0-9_-]+\$?$/.test(schema.pattern)) {
+        const literal = schema.pattern.replace(/^\^|\$$/g, '');
+        return mode === 'invalid' ? '' : literal;
       }
       if (schema.format === 'email') return `gauntlet-${seed}-${shortId(key)}@example.test`;
       if (schema.format === 'uuid') {
@@ -155,13 +170,14 @@ export function makeCase(
     method: operation.method,
     path: operation.path,
     ...buildInputs(operation, seed, mode),
+    ...(operation.requestBody ? { bodyEncoding: operation.requestBody.contentType === 'application/x-www-form-urlencoded' ? 'form' as const : 'json' as const } : {}),
     useAuth: operation.secured && kind !== 'authorization',
     destructive: operation.destructive,
     expected: responseFor(operation, statuses),
     rationale,
     oracleProvenance: [
-      { authority: 'openapi', specHash, sourcePointer: operation.sourcePointer },
-      ...operation.responses.filter((response) => statuses.includes(response.status)).map((response) => ({ authority: 'openapi' as const, specHash, sourcePointer: response.sourcePointer })),
+      { authority: operation.authority ?? 'openapi', specHash, sourcePointer: operation.sourcePointer },
+      ...operation.responses.filter((response) => statuses.includes(response.status)).map((response) => ({ authority: response.authority ?? 'openapi' as const, specHash, sourcePointer: response.sourcePointer })),
     ],
   };
 }
@@ -243,7 +259,10 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig, 
   const cases: TestCasePlan[] = [];
   const operationCoverage = new Map<string, string[]>();
   const blocked = new Map<string, string>();
-  for (const operation of contract.operations) {
+  for (const effective of contract.operations) {
+    // Supplemental statuses are alternatives for specific requirement scenarios,
+    // not permission to invent generic conflict/auth/boundary baselines.
+    const operation = { ...effective, responses: effective.responses.filter(response => response.authority !== 'requirement') };
     operationCoverage.set(operation.operationId, []);
     const denied = allowed(operation, config);
     if (denied) {
@@ -251,6 +270,10 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig, 
       continue;
     }
     if (operation.skipStandalone) continue;
+    if (operation.authority === 'requirement') {
+      blocked.set(operation.operationId, 'Requirement-scoped operation awaits an agent-authored scenario');
+      continue;
+    }
     const success = operation.responses.filter((response) => response.status >= 200 && response.status < 300).map((response) => response.status);
     if (success.length === 0) {
       blocked.set(operation.operationId, 'No declared 2xx response; expected behavior is ambiguous');
@@ -368,6 +391,7 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig, 
 
   return {
     formatVersion: 1,
+    ...(config.fixtures ? {fixtureAuthentication:true} : {}),
     projectName: config.projectName,
     specPath: contract.specPath,
     specHash: contract.specHash,

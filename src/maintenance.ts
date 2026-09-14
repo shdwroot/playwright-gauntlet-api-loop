@@ -6,6 +6,7 @@ import { enumerateSources } from './discovery.js';
 import { optionalJson, writeAnalysisReport } from './analysis-report.js';
 import type { GauntletConfig, RunResult, TestPlan } from './types.js';
 import { atomicWrite, sha256, stableStringify } from './utils.js';
+import { originalContextFiles } from './onboarding.js';
 
 export interface ContextSnapshot { revision: string; frameworkHash: string; files: Array<{ path: string; hash: string }>; }
 
@@ -22,6 +23,7 @@ export async function snapshotContext(config: GauntletConfig, configPath?: strin
     if (total > config.discovery.maxTotalBytes) throw new Error('CONTEXT_TOTAL_LIMIT');
     files.push({ path: path.relative(root, await realpath(file)), hash: sha256(await readFile(file)) });
   }
+  if (configPath) files.push(...await originalContextFiles(configPath));
   const frameworkDir = path.dirname(fileURLToPath(import.meta.url));
   const modules = (await readdir(frameworkDir)).filter(file => /\.(?:js|ts)$/.test(file) && !file.endsWith('.d.ts')).sort();
   const framework = await Promise.all(modules.map(async file => ({ file, hash: sha256(await readFile(path.join(frameworkDir, file))) })));
@@ -61,7 +63,15 @@ export async function maintainRun(config: GauntletConfig, configPath: string | u
     const savedPath = path.join(stateDir, 'validated-plan.json');
     const saved = await optionalJson<{ revision: string; hash: string; plan: TestPlan }>(savedPath);
     if (saved && sha256(stableStringify(saved.plan)) !== saved.hash) throw new Error('PERSISTED_PLAN_INTEGRITY_FAILED');
-    const reusable = config.agents.provider === 'openai' && saved?.revision === before.revision ? saved.plan : undefined;
+    const checkpointPath = path.join(stateDir, 'candidate-plan.json');
+    const checkpoint = await optionalJson<{ revision: string; hash: string; plan: TestPlan }>(checkpointPath);
+    if (checkpoint && sha256(stableStringify(checkpoint.plan)) !== checkpoint.hash) throw new Error('PERSISTED_PLAN_INTEGRITY_FAILED');
+    // A failed execution can still contain a useful compiled implementation.
+    // It is input to the builder, never a passing result or permission to skip gates.
+    const validated = saved?.revision === before.revision ? saved : undefined;
+    const draft = checkpoint?.revision === before.revision ? checkpoint : undefined;
+    const candidate = draft && draft.hash !== validated?.hash ? draft : validated ?? draft;
+    const reusable = config.agents.provider === 'openai' ? candidate?.plan : undefined;
     const backlogPath = path.join(stateDir, 'coverage-backlog.json');
     const previousBacklog = await optionalJson<CoverageBacklog>(backlogPath);
     const result = await execute(reusable, previousBacklog);
@@ -80,7 +90,8 @@ export async function maintainRun(config: GauntletConfig, configPath: string | u
       await atomicWrite(backlogPath, stableStringify(result.coverage));
       await atomicWrite(path.join(result.runDir, 'coverage-backlog.json'), stableStringify(result.coverage));
     }
-    const metadata = { ...before, previousRunId: previous?.runId, reusedValidatedPlan: Boolean(reusable),
+    const metadata = { ...before, previousRunId: previous?.runId, reusedValidatedPlan: Boolean(reusable && candidate === saved),
+      resumedCandidatePlan: Boolean(reusable && candidate === checkpoint),
       changes: contextChanges(previous?.context, before), stableDuringRun: after?.revision === before.revision };
     await atomicWrite(path.join(result.runDir, 'context.json'), stableStringify(metadata));
     await atomicWrite(path.join(result.runDir, 'result.json'), stableStringify(result));
@@ -90,9 +101,13 @@ export async function maintainRun(config: GauntletConfig, configPath: string | u
     const state: MaintenanceState = { formatVersion: 1, context: before, runId: result.runId, status: result.status, reportPath: analysis.reportPath };
     await atomicWrite(path.join(stateDir, 'history', `${result.runId}.json`), stableStringify(state));
     await atomicWrite(statePath, stableStringify(state));
-    if (result.status === 'PASSED') {
+    if (after?.revision === before.revision) {
       const plan = await optionalJson<TestPlan>(path.join(result.runDir, 'plan.json'));
-      if (plan) await atomicWrite(savedPath, stableStringify({ revision: before.revision, hash: sha256(stableStringify(plan)), plan }));
+      if (plan) {
+        const entry = stableStringify({ revision: before.revision, hash: sha256(stableStringify(plan)), plan });
+        await atomicWrite(checkpointPath, entry);
+        if (result.status === 'PASSED') await atomicWrite(savedPath, entry);
+      }
     }
     return result;
   });

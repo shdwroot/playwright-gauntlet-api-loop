@@ -1,23 +1,23 @@
 # Audit against the requested agentic API lifecycle
 
-Reviewed implementation: `e777f42`, 2026-09-14. The original [baseline audit](history/2026-09-14-initial-objectives-audit.md) is retained as history; its missing-watch/report findings are no longer current.
+Updated for the URL-onboarding and source-repair working tree, 2026-09-14. The original [baseline audit](history/2026-09-14-initial-objectives-audit.md) is retained as history; its missing-watch/report findings are no longer current.
 
 **The OpenAPI agentic lifecycle is implemented, with bounded repair and semantic review. The full multi-format objective remains incomplete.** Exact parity with RoboNuggets' implementation has not been assessed.
 
 | Objective | Current implementation | Remaining gap |
 | --- | --- | --- |
 | Accept WSDL, OpenAPI, Swagger, requirements and feature files | OpenAPI 3.x contract plus local UTF-8 context | WSDL/SOAP, Swagger 2, binary-document extraction, structured Gherkin and requirements-only entry |
-| AI analyzes context and discovers scenarios | Real model analyzes bounded source text and contract each run | Discovery cannot guarantee every requirement was found; no within-run rediscovery action |
-| AI implements Playwright API tests | Typed requests, assertions, workflows, captures and cleanup compiled into Playwright | Arbitrary JavaScript, XML and arbitrary response-header assertions and general code repair |
-| Execute, investigate, repair and retest | Real HTTP evidence; request repairs, setup insertion, appended assertions and fresh regression | Existing assertions, captures and step order cannot be rewritten; application code is outside scope |
-| Preserve failures and changes | All model calls/errors, plan revisions, execution attempts and repair evidence | No automatic application bug fix or external issue publication |
+| AI analyzes context and discovers scenarios | Real model analyzes bounded source text and contract each run | Structured JSON criteria have an exhaustive census; general-prose discovery remains fallible and there is no within-run rediscovery action |
+| AI implements Playwright API tests | Typed requests, assertions, workflows, captures and cleanup compiled into Playwright | Arbitrary JavaScript, XML, general code/capture repair and specialized observation adapters |
+| Execute, investigate, repair and retest | Real HTTP evidence; request/setup repairs, narrow malformed-assertion corrections, and configured API patch/restart/unchanged regression | Valid assertions, captures and step order remain protected; source repair requires a configured checkout and deployment commands |
+| Preserve failures and changes | All model calls/errors, plan revisions, execution attempts and repair evidence | No external issue publication; automatic application fixes are bounded by source scope and verification |
 | Full analysis report | Consolidated Markdown/JSON with context, links, backlog, attempts, failures, repairs and model usage | Report synthesis is deterministic, not a separate final analyst agent |
-| Maintain on context changes | Watcher, locks, revision history, successful-plan reuse and persistent obligations, including failed runs | No automatic crash-lock recovery, scheduled target monitoring or selective test regeneration |
+| Maintain on context changes | Watcher, locks, revision history, candidate-plan continuation and persistent obligations, including failed runs | No automatic crash-lock recovery, scheduled target monitoring or selective test regeneration |
 | Verify scenario meaning and isolation | Separate live verifier; schema-constrained assertion references; passing linked tests; isolation review | Model judgments remain fallible; ambiguous removals and missing oracles stay unresolved |
 
 ## Resolved baseline findings
 
-- `src/maintenance.ts` provides change-triggered serialized runs, revision snapshots and successful-plan reuse. Changed context cannot inherit a prior pass.
+- `src/maintenance.ts` provides change-triggered serialized runs, revision snapshots and candidate-plan continuation without carrying a prior pass. Changed context cannot inherit a prior pass.
 - `src/analysis-report.ts` consolidates all attempts; earlier failures remain visible after a later successful repair.
 - `src/coverage.ts` retains semantic obligations, checks fresh execution and actual assertion references, and records reviewed mappings to verified replacements. Rediscovery cannot silently lower an outstanding obligation's confidence or reject it to bypass coverage.
 - `src/agent-plan.ts` and `src/generated-runtime.ts` support appended assertions, failure-path workflow cleanup and configured per-test reset hooks. Cleanup/reset requests count against the live run budget.

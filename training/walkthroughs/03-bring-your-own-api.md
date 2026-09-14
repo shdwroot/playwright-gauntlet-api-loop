@@ -1,11 +1,19 @@
 # How to test your own API
 
-This walkthrough configures the real agent loop. You will create a bounded config beside your OpenAPI contract, review the generated plan, run it against a chosen environment, and audit the final evidence.
+The quickest path is to provide the API contract URL and context:
+
+```bash
+npm run gauntlet -- run --url http://127.0.0.1:8091/openapi.json --context context/requirements.json --source auto
+```
+
+Gauntlet imports the contract, discovers scenarios with Luna, generates and executes Playwright tests, attempts configured repairs and writes a report. Add `--watch` to repeat when the original context changes. `--source auto` enables source repair only for supported local Compose projects; omit it when testing without an application checkout. Repeat `--context` for additional files or directories. See [automatic onboarding](../../docs/autonomous-onboarding.md) for fixture/deployment adapter scope.
+
+The remaining steps describe manual configuration for environments that need custom authentication, isolation or deployment commands.
 
 ## Prerequisites
 
 - Node.js 20.12 or newer
-- A local OpenAPI 3.x JSON or YAML file
+- An OpenAPI 3.x JSON/YAML URL or local file
 - A target environment whose data may safely be read or mutated by the planned cases
 - Credential environment-variable names and values, if the API is secured
 
@@ -27,7 +35,7 @@ Check these contract requirements:
 - `openapi` begins with `3.`.
 - Every operation has a unique, non-empty `operationId`.
 - Every operation declares at least one numeric response such as `"200"`.
-- Request bodies intended for generation use `application/json` or a `+json` media type.
+- Request bodies intended for generation use `application/json`, a `+json` media type, or `application/x-www-form-urlencoded`.
 - Every `$ref` is local and begins with `#/`.
 - Required fields, examples, formats, enums, and min/max constraints describe inputs your test environment can accept.
 - Secured operations declare `401` if you want missing-credential cases.

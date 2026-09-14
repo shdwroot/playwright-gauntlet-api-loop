@@ -1,8 +1,8 @@
 # Playwright API Gauntlet Loop
 
-Gauntlet runs a maintained API testing loop: AI discovers scenarios from an OpenAPI contract and supporting text, authors typed Playwright API tests, runs them, reviews their assertions and isolation, repairs test implementation faults, and writes an analysis report. The default configuration uses **gpt-5.6-luna** for six roles: discovery, lead, builder, verifier, critic and healer.
+Gauntlet runs a maintained API testing loop: AI discovers scenarios from an OpenAPI contract and supporting text, authors typed Playwright API tests, runs them, reviews their assertions and isolation, repairs test implementation faults, optionally fixes and restarts an authorized API source checkout, and writes an analysis report. The default configuration uses **gpt-5.6-luna** for six roles: discovery, lead, builder, verifier, critic and healer.
 
-OpenAPI statuses and schemas remain authoritative. Real API defects stay red. A passing run certifies the configured gates and executed scenarios, not exhaustive API coverage.
+OpenAPI statuses and schemas remain authoritative; explicit structured requirements can add separately traced oracles. API defects stay red until a configured source repair passes a fresh rerun. A passing run certifies the configured gates and executed scenarios, not exhaustive API coverage.
 
 ## Start the live agent loop
 
@@ -13,6 +13,14 @@ npm ci
 # If .env does not exist, copy .env.example to .env and add OPENAI_API_KEY.
 npm run gauntlet -- doctor
 ```
+
+For a local API, supply its contract URL and requirements directly:
+
+```bash
+npm run gauntlet -- run --url http://127.0.0.1:8080/openapi.json --context ./your-api/requirements.json --watch
+```
+
+Replace the URL and context path with your API’s inputs. This imports context, discovers scenarios, writes and runs tests, attempts configured test repairs, reports the results, and repeats when context changes. Add `--source auto` for optional API source repair in a supported local Compose checkout. See [URL onboarding and source repair](docs/autonomous-onboarding.md) for adapter scope.
 
 For the bundled sample, start its disposable API in another terminal:
 
@@ -37,9 +45,9 @@ For your API, follow [the setup walkthrough](training/walkthroughs/03-bring-your
 | API contracts | OpenAPI 3.x YAML/JSON with local references and explicit operation IDs |
 | Supporting context | Bounded local UTF-8 logs, JSON/JSONL, Markdown, text and YAML; live semantic analysis plus deterministic extraction |
 | Test implementation | Contract-derived baseline plus AI-authored requests, response assertions, workflows and captures |
-| Maintenance | Context watching, serialized runs, validated-plan reuse, durable semantic obligations and reviewed replacement mappings |
+| Maintenance | Context watching, serialized runs, candidate-plan continuation, durable semantic obligations and reviewed replacement mappings |
 | Acceptance | Execution, integrity, operation/scenario linkage, semantic proof references and isolation gates |
-| Repair | Request changes, inserted setup, added tests/workflows and assertions; workflow cleanup runs after failures |
+| Repair | Request/setup repairs, narrow malformed-assertion corrections, and configured API source patch/verify/restart/rerun with rollback |
 | Reports | Consolidated Markdown/JSON, context changes, coverage backlog, attempts, repairs, model usage and Playwright evidence |
 | Not yet supported | Swagger 2 conversion, WSDL/SOAP, PDF/DOCX extraction, structured Gherkin, requirements-only execution, arbitrary code/capture/order repairs |
 
@@ -55,7 +63,7 @@ npm run gauntlet -- run --watch       # complete loop plus context monitoring
 npm run gauntlet -- report <run-id>   # saved result.json
 ```
 
-All commands accept `--config path/to/gauntlet.config.json`. Discovery is the `discover` subcommand, not `--discover`. A live generation is a separate model invocation; a later run generates again and can produce a different plan.
+All commands accept `--config path/to/gauntlet.config.json`. `doctor`, `discover`, `generate` and `run` also accept `--url` and repeated `--context` inputs; URL onboarding fetches the contract from the target. Discovery is the `discover` subcommand, not `--discover`. A live generation is a separate model invocation; a later run generates again and can produce a different plan.
 
 Each run prints the path to `analysis.md`. Its directory also contains `analysis.json`, `context.json`, `scenario-ledger.json`, and, for live runs, `coverage-backlog.json`. The [agentic guide](docs/agentic-loop.md#evidence) explains the detailed artifacts.
 

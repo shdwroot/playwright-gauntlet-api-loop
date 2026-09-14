@@ -112,9 +112,41 @@ test('validated plans survive restart but are not reused after a context change'
     assert.deepEqual(prior?.cases[0]?.query, { maintained: 'validated repair' });
     return result(path.join(config.artifactsDir, 'restarted'), 'restarted');
   });
+  const resumed = JSON.parse(await readFile(path.join(config.artifactsDir,'restarted','context.json'),'utf8'));
+  assert.equal(resumed.reusedValidatedPlan,true);
+  assert.equal(resumed.resumedCandidatePlan,false);
   await writeFile(path.join(config.projectRoot, 'context/rules.md'), 'New expectation');
   await maintainRun(config, undefined, async prior => {
     assert.equal(prior, undefined);
     return result(path.join(config.artifactsDir, 'changed'), 'changed');
   });
+});
+
+test('failed runs retain candidate work without certifying it and reject tampered checkpoints', async () => {
+  const config = await fixture(); config.agents.provider = 'openai';
+  const original = await loadConfig('gauntlet.offline.config.json');
+  const plan = buildPlan(await loadContract(original.config.spec), original.config);
+  await maintainRun(config, undefined, async () => {
+    const run = result(path.join(config.artifactsDir, 'failed'), 'failed'); run.status = 'FAILED';
+    await mkdir(run.runDir, { recursive: true });
+    await writeFile(path.join(run.runDir, 'plan.json'), JSON.stringify(plan));
+    return run;
+  });
+  const runDir = path.join(config.artifactsDir, 'resume');
+  await maintainRun(config, undefined, async prior => {
+    assert.deepEqual(prior, plan);
+    const run = result(runDir, 'resume'); run.status = 'FAILED'; return run;
+  });
+  const metadata = JSON.parse(await readFile(path.join(runDir, 'context.json'), 'utf8'));
+  assert.equal(metadata.resumedCandidatePlan, true);
+  assert.equal(metadata.reusedValidatedPlan, false);
+  const { readdir } = await import('node:fs/promises');
+  const maintenance = path.join(config.artifactsDir, '.maintenance');
+  const stateDir = path.join(maintenance, (await readdir(maintenance))[0]!);
+  await assert.rejects(readFile(path.join(stateDir, 'validated-plan.json')), /ENOENT/);
+  const checkpointPath = path.join(stateDir, 'candidate-plan.json');
+  const checkpoint = JSON.parse(await readFile(checkpointPath, 'utf8'));
+  checkpoint.plan.seed = 999;
+  await writeFile(checkpointPath, JSON.stringify(checkpoint));
+  await assert.rejects(maintainRun(config, undefined, async () => result(runDir)), /PERSISTED_PLAN_INTEGRITY_FAILED/);
 });

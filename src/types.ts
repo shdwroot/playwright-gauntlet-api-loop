@@ -41,6 +41,7 @@ export interface NormalizedParameter {
 }
 
 export interface NormalizedResponse {
+  authority?: 'openapi' | 'requirement';
   status: number;
   contentType?: string;
   schema?: JsonSchema;
@@ -48,6 +49,7 @@ export interface NormalizedResponse {
 }
 
 export interface NormalizedOperation {
+  authority?: 'openapi' | 'requirement';
   operationId: string;
   method: HttpMethod;
   path: string;
@@ -142,7 +144,8 @@ export interface DiscoveryCandidate {
   title?: string;
   rationale?: string;
   scenario?: unknown;
-  origin?: 'llm' | 'deterministic';
+  origin?: 'llm' | 'deterministic' | 'requirement';
+  operationIds?: string[];
   method?: HttpMethod;
   observedPath?: string;
   observedStatus?: number;
@@ -181,18 +184,22 @@ export interface DiscoveryReport {
 
 export interface ExpectedResponse {
   statuses: number[];
+  variants?: Array<{ status: number; contentType?: string; schema?: JsonSchema }>;
   contentType?: string;
   schema?: JsonSchema;
 }
 
 export interface ResponseAssertion {
+  whenStatuses?: number[];
+  target?: 'body' | 'headers' | 'fixture' | 'parallel';
   path: string;
-  operator: 'equals' | 'not-equals' | 'length-equals' | 'contains' | 'gte' | 'lte';
+  operator: 'equals' | 'not-equals' | 'length-equals' | 'length-lte' | 'length-gte' | 'contains' | 'gte' | 'lte' | 'exists' | 'not-exists';
   value: unknown;
   sourcePointer: string;
 }
 
 export interface TestCasePlan {
+  oracleOrigin?: 'agent';
   authoredBy?: 'agent';
   assertions?: ResponseAssertion[];
   id: string;
@@ -207,6 +214,7 @@ export interface TestCasePlan {
   headers: Record<string, string>;
   body?: unknown;
   rawBody?: string;
+  bodyEncoding?: 'json' | 'form';
   useAuth: boolean;
   destructive: boolean;
   expected: ExpectedResponse;
@@ -218,7 +226,7 @@ export interface TestCasePlan {
     linkRationale?: string;
   };
   oracleProvenance: Array<{
-    authority: 'openapi';
+    authority: 'openapi' | 'requirement';
     specHash: string;
     sourcePointer: string;
   }>;
@@ -226,6 +234,7 @@ export interface TestCasePlan {
 
 export interface WorkflowStepPlan extends TestCasePlan {
   capture: Record<string, string>;
+  parallelGroup?: string;
 }
 
 export interface WorkflowPlan {
@@ -236,6 +245,7 @@ export interface WorkflowPlan {
 }
 
 export interface TestPlan {
+  fixtureAuthentication?: boolean;
   isolation?: { beforeEach: WorkflowStepPlan[]; afterEach: WorkflowStepPlan[] };
   formatVersion: 1;
   projectName: string;
@@ -278,6 +288,15 @@ export interface AgentConfig {
 }
 
 export interface GauntletConfig {
+  fixtures?: { adapter: 'dvra'; command: string[]; apiOrigin?: string };
+  sourceRepair?: {
+    root: string;
+    include: string[];
+    verifyCommand: string[];
+    restartCommand: string[];
+    maxAttempts: number;
+    commandTimeoutMs: number;
+  };
   isolation?: { operationId: string; request: Record<string, unknown> };
   projectRoot: string;
   projectName: string;

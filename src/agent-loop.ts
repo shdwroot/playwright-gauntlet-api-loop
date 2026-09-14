@@ -2,7 +2,7 @@ import { plannedRequestCount } from './agent-plan.js';
 import { reconcileCoverage, verifyCoverage, type CoverageBacklog } from './coverage.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { BuilderAgent, HealerAgent, LeadAgent, createAgentProvider, type AgentProvider, type LeadAction } from './agents.js';
+import { BuilderAgent, HealerAgent, LeadAgent, compactDiscovery, compactFindings, coverageWorklist, createAgentProvider, type AgentProvider, type LeadAction } from './agents.js';
 import { CriticAgent } from './critic.js';
 import { discoverScenarios } from './discovery.js';
 import { auditedAgentProvider, newRunId, RunLedger } from './evidence.js';
@@ -12,10 +12,12 @@ import { loadContract } from './openapi.js';
 import { runPlaywright } from './runner.js';
 import type { CriticFinding, CriticVerdict, ExecutionSummary, GauntletConfig, HealAudit, RunResult, TestPlan } from './types.js';
 import { errorMessage, sha256, stableStringify } from './utils.js';
+import { repairSource } from './source-repair.js';
+import { addRequirementOracles } from './requirement-oracles.js';
 
 export async function runAgenticGauntlet(config: GauntletConfig, options: { runId?: string; injectStaleData?: boolean; agentProvider?: AgentProvider; previousBacklog?: CoverageBacklog; previousPlan?: TestPlan } = {}): Promise<RunResult> {
   const underlying = options.agentProvider ?? createAgentProvider(config.agents);
-  const contract = await loadContract(config.spec);
+  let contract = await loadContract(config.spec);
   const ledger = new RunLedger(options.runId ?? newRunId(), config);
   await ledger.initialize(contract.specHash);
   const provider = auditedAgentProvider(underlying, ledger);
@@ -27,6 +29,7 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
   let verdict: CriticVerdict | undefined;
   let iterations = 0;
   let requests = 0;
+  let buildsSinceExecution = 0;
   let latestError: string | undefined;
   const seenFailures = new Set<string>();
   const rejectedProposals = new Map<string, number>();
@@ -51,15 +54,26 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
   try {
     await ledger.record('DISCOVER', 0, 'Discovery agent analyzing source text and API semantics');
     const discovery = await discoverScenarios(contract, config, provider);
+    contract = addRequirementOracles(contract, discovery);
+    await ledger.write('requirement-oracles.json', contract.document['x-gauntlet-requirement-oracles'] ?? {});
     backlog = reconcileCoverage(discovery, options.previousBacklog);
     await ledger.write('discovery/report.json', discovery);
     let allowedActions: LeadAction[] = ['build', 'block'];
     // Execution iterations and model decisions are separate bounded budgets.
-    for (let turn = 1; turn <= config.maxIterations * 4 + 2; turn += 1) {
+    for (let turn = 1; turn <= config.maxIterations * 6 + 2; turn += 1) {
       const decision = await lead.decide(config, {
-        discovery, backlog, plan, execution, verdict, history, latestError,
+        discovery: compactDiscovery(discovery),
+        backlog: backlog?.obligations.map(({ id, status, reason }) => ({ id, status, reason })),
+        plan: plan ? { operations: plan.operations, cases: plan.cases.map(c => ({ id: c.id, operationId: c.operationId, title: c.title })),
+          workflows: plan.workflows.map(w => ({ id: w.id, title: w.title, steps: w.steps.map(s => ({ id: s.id, operationId: s.operationId })) })) } : undefined,
+        execution: execution ? { ...execution, observations: undefined, failures: execution.failures?.map(({ title, messages }) => ({ title, messages })) } : undefined,
+        verdict: verdict ? { ...verdict, invocation: undefined, findings: compactFindings(verdict.findings) } : undefined,
+        coverageWorklist: plan ? coverageWorklist(plan, config.discovery.minimumConfidence) : undefined,
+        history, latestError,
         remainingExecutions: config.maxIterations - iterations,
         remainingRequests: config.safety.maxRequestsPerRun - requests,
+        sourceRepair: config.sourceRepair ? { available: true, remainingAttempts: config.sourceRepair.maxAttempts - heals.filter(h => h.classification === 'product-defect').length,
+          instruction: 'Choose heal for evidenced product defects: a developer agent can patch API implementation, validate, restart and rerun the unchanged plan.' } : { available: false },
       }, allowedActions);
       await ledger.write(`agents/lead-${turn}.json`, decision.invocation);
       history.push({ action: decision.action, reason: decision.reason });
@@ -77,7 +91,14 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
           ];
           const built = await builder.build(contract, config, feedback, discovery, plan ?? options.previousPlan);
           await ledger.write(`agents/builder-${turn}.json`, built.invocation);
+          if (built.rejections?.length) await ledger.write(`agents/builder-${turn}-validation.json`, {rejections:built.rejections,policy:'Valid independent units retained; rejected units remain unimplemented.'});
           const changed = !plan || stableStringify({ cases: built.plan.cases, workflows: built.plan.workflows }) !== stableStringify({ cases: plan.cases, workflows: plan.workflows });
+          if (!changed && buildsSinceExecution > 0) {
+            latestError = built.rejections?.join('\n') || latestError;
+            await ledger.record('PLAN', iterations, 'No further valid additions in this batch; executing the previously retained unexecuted plan. Rejected work remains in the backlog.');
+            allowedActions = ['execute'];
+            continue;
+          }
           if (!changed && verdict) return finish(verdict.decision === 'pass' ? 'STALLED' : 'FAILED', 'Builder supplied no executable changes after the previous execution.');
           if (!changed && latestError) return finish('STALLED', 'Builder made no changes after rejected output.');
           plan = built.plan;
@@ -89,9 +110,13 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
             options.injectStaleData = false;
           }
           verdict = undefined;
-          latestError = undefined;
+          latestError = built.rejections?.length ? built.rejections.join('\n') : undefined;
           rejectedProposals.clear();
-          allowedActions = ['execute', 'build', 'block'];
+          buildsSinceExecution = changed ? buildsSinceExecution + 1 : 3;
+          // Larger requirement sets need several bounded builder batches before
+          // spending a full regression iteration. Small APIs retain one build.
+          allowedActions = coverageWorklist(plan, config.discovery.minimumConfidence).remaining >= 12 && buildsSinceExecution < 3
+            ? ['build', 'block'] : ['execute', 'build', 'block'];
         } catch (error) {
           latestError = errorMessage(error);
           await ledger.write(`agents/builder-${turn}-rejected.json`, { error: latestError });
@@ -104,8 +129,24 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
       if (decision.action === 'heal') {
         await ledger.record('HEAL', iterations, decision.reason);
         try {
-          const repaired = await healer.repair(contract, config, plan, { execution, verdict, latestError, history });
+          const repaired = await healer.repair(contract, config, plan, { execution,
+            verdict: verdict ? { ...verdict, invocation: undefined, findings: verdict.findings.map(({ code, severity, message }) => ({ code, severity, message })) } : undefined,
+            latestError, history });
           await ledger.write(`agents/healer-${turn}.json`, repaired.invocation);
+          if (repaired.classification === 'product-defect' && config.sourceRepair && execution
+            && iterations < config.maxIterations
+            && heals.filter(h => h.classification === 'product-defect').length < config.sourceRepair.maxAttempts) {
+            await ledger.record('HEAL', iterations, 'Developer agent repairing API source; test expectations remain unchanged.');
+            const audit = await repairSource(provider, config, contract, plan, execution, iterations, path.join(ledger.runDir, 'source-repairs', String(turn)), { latestError, diagnosis:repaired.hypothesis });
+            heals.push(audit);
+            await ledger.write(`attempts/${iterations}/source-heal.json`, audit);
+            if (audit.policyDecision !== 'auto' || audit.rollback) return finish('FAILED', audit.hypothesis);
+            // Do not regenerate or reinterpret a test after a product repair.
+            // Only fresh execution of the unchanged plan can prove the fix.
+            verdict = undefined; latestError = undefined;
+            allowedActions = ['execute'];
+            continue;
+          }
           const beforeHash = sha256(stableStringify(plan));
           const afterHash = sha256(stableStringify(repaired.plan));
           const changed = stableStringify({ cases: plan.cases, workflows: plan.workflows }) !== stableStringify({ cases: repaired.plan.cases, workflows: repaired.plan.workflows });
@@ -135,6 +176,7 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
       const requestCount = plannedRequestCount(plan);
       if (requests + requestCount > config.safety.maxRequestsPerRun) return finish('BLOCKED', 'Cumulative request budget exhausted before the next full regression.');
       requests += requestCount;
+      buildsSinceExecution = 0;
       iterations += 1;
       const integrity = await verifyGeneratedArtifacts(config).catch(() => ({ valid: false }));
       const candidateContents = await readFile(path.join(config.generatedDir, 'plan.generated.json'), 'utf8').catch(() => '');
@@ -145,10 +187,13 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
       }
       await ledger.record('EXECUTE', iterations, decision.reason);
       execution = await runPlaywright(config, ledger.runId, path.join(ledger.runDir, 'attempts', String(iterations)));
+      console.error(`[execution] Attempt ${iterations}: ${execution.passed} passed, ${execution.failed} failed, ${execution.skipped} skipped`);
       await ledger.write(`attempts/${iterations}/execution.json`, execution);
       const manifest = (await verifyGeneratedArtifacts(config)).manifest;
       await ledger.record('CRITIQUE', iterations, 'Independent critic inspecting authored tests and actual execution evidence');
       const verification = await verifyCoverage(provider, config, plan, execution, backlog);
+      const obligations = backlog.obligations.filter(o => o.status !== 'superseded' && o.candidate.confidence >= config.discovery.minimumConfidence);
+      console.error(`[coverage] ${obligations.filter(o => o.status === 'verified').length}/${obligations.length} required obligations verified`);
       await ledger.write(`attempts/${iterations}/verification.json`, verification);
       verdict = await critic.review(contract, plan, manifest, execution, config, verification.findings);
       await ledger.write(`attempts/${iterations}/critic.json`, verdict);

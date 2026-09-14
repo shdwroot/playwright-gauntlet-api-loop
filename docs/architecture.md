@@ -26,6 +26,10 @@ spec + configured context → discovery → persistent obligations
 
 | Component | Responsibility |
 | --- | --- |
+| `src/onboarding.ts`, `src/source-project.ts` | Import a URL and original context; identify supported local source/fixture adapters |
+| `src/requirements.ts`, `src/requirement-oracles.ts` | Census structured criteria and retain separate supplemental-oracle provenance |
+| `src/source-repair.ts`, `src/local-source-restart.ts` | Scope exact API edits, preserve backups, verify/deploy, and record rollback/image evidence |
+| `src/fixtures.ts`, `src/dvra-fixture.ts` | Provision per-test actors and records, supply symbolic bindings, and perform scoped cleanup |
 | `src/discovery.ts` | Read bounded local text, redact context, extract deterministic signals and call semantic discovery |
 | `src/agents.ts` | Actual Responses API calls for discovery, lead, builder, verifier, critic and healer; role-specific models and structured output |
 | `src/agent-loop.ts` | Enforce lead actions, execution/request budgets, repetition stopping and gated acceptance |
@@ -36,24 +40,24 @@ spec + configured context → discovery → persistent obligations
 | `src/coverage.ts` | Retain obligations, restrict verifier proofs to passing linked tests, validate executable assertion pointers, reconcile to verified replacements |
 | `src/critic.ts` | Contract, execution, integrity, coverage and traceability gates; additional model critique cannot waive failures |
 | `src/healer.ts` | Restore generated artifacts from the trusted accepted plan when their contents drift |
-| `src/maintenance.ts` | Locks, context fingerprints, watch scheduling, history and eligible successful-plan persistence |
+| `src/maintenance.ts` | Locks, context fingerprints, watch scheduling, history and revision-bound candidate-plan persistence |
 | `src/analysis-report.ts` | Consolidate every attempt, coverage, repairs, findings and model usage into Markdown/JSON |
 
-The executor, compiler, renderer and report writer are code components, not extra LLM agents. Separate prompts and invocation identities establish role separation; using the same model for all six roles does not make review mathematically independent.
+The executor, compiler, renderer and report writer are code components, not extra LLM agents. Separate prompts and invocation identities establish role separation; using the same model across these roles does not make review mathematically independent.
 
 ## Trust boundaries
 
-OpenAPI supplies operation identity, expected statuses and schemas. Supporting text and observed responses are untrusted data: they can motivate tests but cannot authorize new endpoints, rewrite a failed status or instruct the framework to reveal credentials. Scenario-specific assertions retain contract-context pointers and must distinguish inference from explicit requirements.
+OpenAPI supplies operation identity, expected statuses and schemas. Supporting text and observed responses are untrusted data: they can motivate tests but cannot grant target authorization, rewrite an existing failed status or instruct the framework to reveal credentials. Explicit structured requirements can supply supplemental routes/statuses with separate provenance and the same host/method policy. Scenario-specific assertions retain contract-context pointers and must distinguish inference from explicit requirements.
 
 Redaction is applied before model inputs and persisted discovery excerpts. Exchange attachments redact credential-like fields. Redaction is pattern-based, not a guarantee that every custom sensitive field is removed; inspect artifacts before sharing them. Model invocation evidence can include bounded redacted document text, while discovery reports retain source hashes, lines and excerpts.
 
-Target host/method restrictions, non-loopback opt-in and destructive-operation policy apply independently of model decisions. Configured credential values are loaded by the worker from environment variables. Models author a typed plan and cannot execute arbitrary JavaScript, shell commands or application-source repairs.
+Target host/method restrictions, non-loopback opt-in and destructive-operation policy apply independently of model decisions. Configured credential values are loaded by the worker from environment variables. Models author a typed plan and cannot execute arbitrary JavaScript or shell commands. When source repair is configured, a developer role proposes exact implementation edits; code validates their scope and configured commands verify/restart the API. Tests retain their expectations across the subsequent rerun.
 
 A verifier may block semantic or isolation gaps. Its proof choices are schema-constrained to linked passing tests and executable assertions, then checked again by code. Generic new critic concerns remain warnings unless corroborated by an existing blocking code. Neither role can override execution or contract gates.
 
 ## State and persistence
 
-A revision combines spec/source/config content, effective configuration and compiled framework module hashes. A successful plan is reusable only for the same revision, and even then discovery and execution run again. Changed revisions regenerate tests; semantic obligations persist and can be explicitly reconciled to freshly verified replacements. Unresolved removals stay visible.
+A revision combines spec/source/config content, effective configuration and compiled framework module hashes. A compiled candidate from a completed run is reusable as builder input only for the same revision, and even then discovery and execution run again. A failed candidate is never treated as a passing result. Changed revisions regenerate tests; semantic obligations persist and can be explicitly reconciled to freshly verified replacements. Unresolved removals stay visible.
 
 Locks serialize writers to a generated directory. Watch mode coalesces changes and schedules a new run after the active one completes; mid-run context drift invalidates acceptance. It does not schedule periodic target-only checks, automatically retry unchanged failures, reload existing `.env` values, or recover stale locks after crashes.
 

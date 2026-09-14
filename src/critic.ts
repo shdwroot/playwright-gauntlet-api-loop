@@ -13,6 +13,7 @@ import type {
 import { ensureWithin, sha256, stableStringify } from './utils.js';
 import { verifyGeneratedArtifacts } from './generator.js';
 import { scenarioLedger } from './analysis-report.js';
+import { validOraclePointer } from './requirement-oracles.js';
 
 function finding(code: string, message: string, evidence: string[], repair: CriticFinding['repair'] = 'none'): CriticFinding {
   return { code, severity: 'blocking', message, evidence, repair };
@@ -62,7 +63,7 @@ export class CriticAgent {
       findings.push(finding('COVERAGE_GAP', `Operation coverage ${(coverage * 100).toFixed(1)}% is below the required ${(config.quality.minimumOperationCoverage * 100).toFixed(1)}%.`, missing));
     }
     const expectedTests = plan.cases.length + plan.workflows.length;
-    const semanticScenarios = scenarioLedger(plan.discovery, plan).filter(item => item.origin === 'llm'
+    const semanticScenarios = scenarioLedger(plan.discovery, plan).filter(item => (item.origin === 'llm' || item.origin === 'requirement')
       && item.confidence >= config.discovery.minimumConfidence && item.disposition !== 'rejected');
     const unimplemented = semanticScenarios.filter(item => item.tests.length === 0);
     const scenarioCoverage = semanticScenarios.length ? 1 - unimplemented.length / semanticScenarios.length : 1;
@@ -81,17 +82,17 @@ export class CriticAgent {
     if (/\btest\.(?:skip|only|fixme)\s*\(/.test(generatedSource)) {
       findings.push(finding('FORBIDDEN_TEST_CONTROL', 'Generated tests contain skip, only, or fixme controls.', ['api.generated.spec.mjs'], 'regenerate-artifacts'));
     }
-    if (plan.cases.some((testCase) => !testCase.sourcePointer.startsWith('/paths/'))) {
+    if (plan.cases.some((testCase) => !contract.operations.some(o => o.sourcePointer === testCase.sourcePointer))) {
       findings.push(finding('TRACEABILITY_INVALID', 'At least one case lacks an OpenAPI source pointer.', ['plan.generated.json'], 'regenerate-artifacts'));
     }
-    const invalidOracle = [...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)].filter((testCase) =>
+    const invalidOracle = [...plan.cases, ...plan.workflows.flatMap((workflow) => [...workflow.steps, ...(workflow.cleanupSteps ?? [])])].filter((testCase) =>
       testCase.oracleProvenance.length === 0
-      || testCase.oracleProvenance.some((oracle) => oracle.authority !== 'openapi' || oracle.specHash !== contract.specHash || !oracle.sourcePointer.startsWith('/paths/')),
+      || testCase.oracleProvenance.some((oracle) => oracle.specHash !== contract.specHash || !validOraclePointer(contract, oracle.authority, oracle.sourcePointer)),
     );
     if (invalidOracle.length) {
       findings.push(finding('ORACLE_PROVENANCE_INVALID', 'Every executable assertion must cite the active OpenAPI contract.', invalidOracle.map((item) => item.id), 'regenerate-artifacts'));
     }
-    const undeclaredExpectations = [...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)].filter((testCase) => {
+    const undeclaredExpectations = [...plan.cases, ...plan.workflows.flatMap((workflow) => [...workflow.steps, ...(workflow.cleanupSteps ?? [])])].filter((testCase) => {
       const operation = contract.operations.find((item) => item.operationId === testCase.operationId);
       return !operation || testCase.expected.statuses.some((status) => !operation.responses.some((response) => response.status === status));
     });
@@ -120,7 +121,7 @@ export class CriticAgent {
         }
       }
       const snapshots = new Map(plan.discovery.sources.map((source) => [source.id, source]));
-      const executableCandidateIds = new Set([...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)].flatMap((testCase) => testCase.discovery?.candidateIds ?? []));
+      const executableCandidateIds = new Set([...plan.cases, ...plan.workflows.flatMap((workflow) => [...workflow.steps, ...(workflow.cleanupSteps ?? [])])].flatMap((testCase) => testCase.discovery?.candidateIds ?? []));
       for (const candidate of plan.discovery.candidates) {
         if ((candidate.disposition === 'generate' || candidate.disposition === 'merge') && candidate.evidence.length === 0 && !(candidate.origin === 'llm' && candidate.contractPointers.length > 0)) {
           findings.push(finding('DISCOVERY_CITATION_MISSING', `Executable discovery candidate ${candidate.id} lacks evidence.`, [candidate.id], 'regenerate-artifacts'));
@@ -167,8 +168,8 @@ export class CriticAgent {
         manifest,
         coverage,
         execution,
-        plan,
-        deterministicFindings: findings,
+        plan: { ...plan, discovery: undefined },
+        deterministicFindings: findings.map(({ code, severity, message }) => ({ code, severity, message })),
         verifiedFacts: {
           artifactIntegrity: integrity.valid,
           specHashAligned: manifest.specHash === contract.specHash && plan.specHash === contract.specHash,

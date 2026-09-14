@@ -3,18 +3,49 @@ import { test } from 'node:test';
 import { loadConfig } from '../../src/config.js';
 import { loadContract } from '../../src/openapi.js';
 import { buildPlan } from '../../src/planner.js';
-import { applyAgentPlan } from '../../src/agent-plan.js';
+import { applyAgentPlan, applyAgentPlanIncrementally } from '../../src/agent-plan.js';
 import { discoverScenarios } from '../../src/discovery.js';
 import { redactAgentData } from '../../src/agent-redaction.js';
 import type { AgentProvider } from '../../src/agents.js';
+import { compactFindings, coverageWorklist } from '../../src/agents.js';
 
 async function base() {
   const { config } = await loadConfig('gauntlet.offline.config.json');
   const contract = await loadContract(config.spec);
   return { config, contract, plan: buildPlan(contract, config) };
 }
+
+test('coverage worklists retain unlinked requirements and compact duplicated diagnostic evidence', async () => {
+  const {plan} = await base();
+  plan.discovery = {formatVersion:1,specHash:plan.specHash,discoveryHash:'',sourceCount:0,totalBytes:0,sources:[],warnings:[],redactionCount:0,
+    candidates:Array.from({length:15},(_,i)=>({id:`req-${i}`,origin:'requirement',signal:'semantic-scenario',operationId:'listUsers',confidence:1,disposition:'report-only',reason:'Check this criterion',contractPointers:[],evidence:[]}))};
+  assert.equal(coverageWorklist(plan,0.85).remaining,15);
+  assert.equal(coverageWorklist(plan,0.85).batch.length,12);
+  plan.cases[0]!.discovery = {signal:'semantic-scenario',candidateIds:['req-0'],evidence:[]};
+  assert.equal(coverageWorklist(plan,0.85).remaining,14);
+  assert.ok(!coverageWorklist(plan,0.85).batch.some(c=>c.id==='req-0'));
+  const compact = compactFindings([{code:'SEMANTIC_COVERAGE_GAP',severity:'blocking',message:'req-1 needs a linked exact assertion',evidence:['attempts/1/verification.json','x'.repeat(500_000)]}]);
+  assert.equal(compact[0]!.message,'req-1 needs a linked exact assertion');
+  assert.deepEqual(compact[0]!.evidence,['attempts/1/verification.json']);
+  assert.equal(compact[0]!.evidenceOmitted,1);
+  assert.ok(JSON.stringify(compact).length<1000);
+});
 const testCase = { id: 'last-page', title: 'Empty last page', operationId: 'listUsers', status: 200,
   rationale: 'A valid offset beyond available users returns an empty page.', assertions: [{ path: '$.data', operator: 'length-equals', value: 0, sourcePointer: '/paths/~1users/get' }], request: { query: { limit: 1, offset: 10000 } } };
+
+test('exact JSON comparisons compile without changing semantics and malformed assertions never execute', async () => {
+  const { config, contract, plan } = await base();
+  const candidate = { ...testCase, assertions: [{path:'$',operator:'json-equals',value:'{"data":[],"offset":0}',sourcePointer:'/paths/~1users/get'}] };
+  const built = applyAgentPlan(plan, {cases:[candidate]}, contract, config);
+  assert.deepEqual(built.cases.at(-1)?.assertions?.[0]?.value, {data:[],offset:0});
+  assert.equal(built.cases.at(-1)?.assertions?.[0]?.operator, 'equals');
+  for (const value of ['{invalid','42','null','"serialized"']) {
+    assert.throws(() => applyAgentPlan(plan,{cases:[{...candidate,assertions:[{...candidate.assertions[0],value}]}]},contract,config),/AGENT_ASSERTION_VALUE_INVALID/);
+  }
+  assert.throws(() => applyAgentPlan(plan,{cases:[{...candidate,assertions:[{...candidate.assertions[0],operator:'not-exists'}]}]},contract,config),/AGENT_ASSERTION_TYPE_INVALID/);
+  config.fixtures = {adapter:'dvra',command:['unused']};
+  assert.throws(() => applyAgentPlan(plan,{cases:[{...candidate,assertions:[{path:'$.actors.customerB.coupons',target:'fixture',operator:'length-equals',value:1,sourcePointer:'/paths/~1users/get'}]}]},contract,config),/fixture counts are numeric/);
+});
 
 test('agent authors executable inputs; repairs preserve immutable expectations and baseline cases', async () => {
   const { config, contract, plan } = await base();
@@ -38,6 +69,36 @@ test('agent proposals cannot invent operations, statuses, headers or skip contro
     assert.throws(() => applyAgentPlan(plan, { cases: [{ ...testCase, ...change }] }, contract, config), /AGENT_/);
   }
   assert.throws(() => applyAgentPlan(plan, { cases: [testCase] }, contract, { ...config, safety: { ...config.safety, maxRequestsPerRun: 1 } }), /BUDGET/);
+});
+
+test('independent valid proposals survive rejection while invalid workflows remain atomic',async()=>{
+  const {config,contract,plan}=await base();
+  assert.throws(()=>applyAgentPlan({...plan,specHash:'different-contract'},{cases:[testCase]},contract,config),/CONTRACT_MISMATCH/);
+  const result=applyAgentPlanIncrementally(plan,{cases:[testCase,{...testCase,id:'bad',operationId:'invented'}],workflows:[{id:'bad-workflow',title:'Invalid second step',steps:[{...testCase,id:'first'},{...testCase,id:'second',status:599}]}]},contract,config);
+  assert.equal(result.plan.cases.length,plan.cases.length+1);
+  assert.equal(result.plan.workflows.length,plan.workflows.length);
+  assert.equal(result.rejections.length,2);
+  assert.deepEqual(result.plan.cases.slice(0,plan.cases.length),plan.cases);
+  assert.throws(()=>applyAgentPlanIncrementally(plan,{skip:true},contract,config),/unsupported plan/);
+});
+
+test('a workflow link includes its declared cleanup operation without inventing coverage',async()=>{
+  const {config,contract,plan}=await base();
+  plan.discovery={formatVersion:1,specHash:plan.specHash,discoveryHash:'',sourceCount:0,totalBytes:0,sources:[],warnings:[],redactionCount:0,candidates:[{id:'delete-criterion',origin:'requirement',signal:'semantic-scenario',confidence:1,disposition:'report-only',operationId:'deleteUser',reason:'Delete returns 204',contractPointers:[],evidence:[]}]};
+  const result=applyAgentPlan(plan,{workflows:[{id:'cleanup-proof',title:'Read and delete',steps:[testCase],cleanupSteps:[{id:'delete',operationId:'deleteUser',status:204,rationale:'Delete fixture user',request:{pathParams:{id:'owned-id'}}}]}],coverageLinks:[{caseId:'cleanup-proof',discoveryIds:['delete-criterion'],rationale:'Cleanup performs the asserted delete operation'}]},contract,config);
+  assert.ok(result.workflows.at(-1)?.cleanupSteps?.[0]?.discovery?.candidateIds.includes('delete-criterion'));
+  assert.ok(result.operations.find(o=>o.operationId==='deleteUser')?.coveredBy.includes('workflow:agent-cleanup-proof'));
+});
+
+test('declared non-auth 4xx scenarios use synthetic invalid credentials without sending model literals', async () => {
+  const {config,contract,plan}=await base();
+  const operation=contract.operations.find(o=>o.responses.some(r=>r.status===400))!;
+  assert.ok(operation);
+  const candidate={id:'unexpected-header',operationId:operation.operationId,status:400,rationale:'Declared rejection with an Authorization header',request:{useAuth:false,headers:{authorization:'Bearer model-literal'}}};
+  const built=applyAgentPlan(plan,{cases:[candidate]},contract,config);
+  assert.equal(built.cases.at(-1)?.headers.authorization,'Bearer gauntlet-invalid-credential');
+  assert.deepEqual(built.cases.at(-1)?.expected.statuses,[400]);
+  assert.throws(()=>applyAgentPlan(plan,{cases:[{...candidate,status:200}]},contract,config),/HEADER_DENIED/);
 });
 
 test('existing executable cases can receive validated scenario links without duplicate requests', async () => {

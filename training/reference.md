@@ -27,6 +27,8 @@ npm run gauntlet -- <command> [options]
 | `run` | `--config <path>`, `--watch`, `--inject-stale-data` | Generates, executes, critiques, and, when policy permits, heals and reruns the suite. `loop` is an accepted alias for `run`. |
 | `report` | `<run-id-or-directory>`, `--config <path>` | Prints the saved `result.json`. A bare run ID is resolved beneath the configured `artifactsDir`. |
 
+`doctor`, `discover`, `generate` and `run` also accept `--url`, repeated `--context`, `--project-dir`, `--model` and `--source auto|path`. With `--url`, onboarding fetches the contract from the target before the selected command; discovery/generation still do not execute test operations. See [automatic onboarding](../docs/autonomous-onboarding.md).
+
 The default config path is `gauntlet.config.json` in the current directory; it uses live Luna agents. `discover` is a subcommand, not `--discover`. Append `--agentic --model MODEL_ID` to override all role models and enable live mode. `OPENAI_MODEL` is the fallback only with `--agentic`.
 
 Watch mode reports each run and continues monitoring. Use one-shot `run` for a CI exit code: stopping the watcher does not summarize prior run failures. `--inject-stale-data` applies to one-shot runs, not watch runs.

@@ -14,6 +14,7 @@ import { runPlaywright } from './runner.js';
 import { sha256, stableStringify } from './utils.js';
 import { discoverScenarios } from './discovery.js';
 import { maintainRun, withRunLock } from './maintenance.js';
+import { addRequirementOracles } from './requirement-oracles.js';
 
 export interface RunOptions {
   configPath?: string;
@@ -124,7 +125,7 @@ export async function generateOnly(configPath?: string): Promise<{ manifestPath:
 }
 
 async function generateOnce(config: Awaited<ReturnType<typeof loadConfig>>['config']): Promise<{ manifestPath: string; cases: number; workflows: number }> {
-  const contract = await loadContract(config.spec);
+  let contract = await loadContract(config.spec);
   let provider = createAgentProvider(config.agents);
   let ledger: RunLedger | undefined;
   if (config.agents.provider === 'openai') {
@@ -134,6 +135,7 @@ async function generateOnce(config: Awaited<ReturnType<typeof loadConfig>>['conf
     console.error(`Generation evidence: ${ledger.runDir}`);
   }
   const discovery = await discoverScenarios(contract, config, provider);
+  contract = addRequirementOracles(contract, discovery);
   await ledger?.write('discovery/report.json', discovery);
   const built = await new BuilderAgent(provider).build(contract, config, [], config.discovery.enabled || config.agents.provider === 'openai' ? discovery : undefined);
   await ledger?.write('agents/builder.json', built.invocation);

@@ -21,13 +21,13 @@ test.describe.configure({ mode: 'default' });
 
 for (const planned of plan.cases) {
   test(\`[\${planned.id}] \${planned.title}\`, async ({ request }, testInfo) => {
-    await executeIsolated(request, testInfo, plan, () => executeGeneratedCase(request, testInfo, planned));
+    await executeIsolated(request, testInfo, plan, () => executeGeneratedCase(request, testInfo, planned), planned);
   });
 }
 
 for (const workflow of plan.workflows) {
   test(\`[workflow:\${workflow.id}] \${workflow.title}\`, async ({ request }, testInfo) => {
-    await executeIsolated(request, testInfo, plan, () => executeGeneratedWorkflow(request, testInfo, workflow));
+    await executeIsolated(request, testInfo, plan, () => executeGeneratedWorkflow(request, testInfo, workflow), workflow);
   });
 }
 `;

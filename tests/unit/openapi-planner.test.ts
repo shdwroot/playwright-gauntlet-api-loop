@@ -7,6 +7,13 @@ import { loadConfig } from '../../src/config.js';
 import { stableStringify } from '../../src/utils.js';
 import type { JsonSchema } from '../../src/types.js';
 
+test('nullable unanchored literal patterns generate valid boundary input', () => {
+  const schema: JsonSchema = {anyOf:[{type:'string',pattern:'password'},{type:'null'}]};
+  assert.equal(sampleFromSchema(schema,42,'grant_type','boundary'),'password');
+  assert.equal(sampleFromSchema({type:'string',pattern:'^password$'},42,'grant_type','boundary'),'password');
+  assert.equal(sampleFromSchema(schema,42,'grant_type','invalid'),'');
+});
+
 test('API target environment override takes precedence and still enforces the host policy', async () => {
   const previous = process.env.GAUNTLET_BASE_URL;
   try {
@@ -52,6 +59,10 @@ test('schema data generation honors constraints and invalid modes', () => {
   assert.equal(sampleFromSchema(schema, 42, 'limit', 'valid'), 1);
   assert.equal(sampleFromSchema(schema, 42, 'limit', 'boundary'), 10);
   assert.equal(sampleFromSchema(schema, 42, 'limit', 'invalid'), 0);
+  assert.equal(sampleFromSchema({type:'integer'},42,'path-id','invalid'),'not-an-integer');
+  assert.equal(sampleFromSchema({type:'number',exclusiveMinimum:0},42,'limit','invalid'),0);
+  assert.equal(sampleFromSchema({type:'string',pattern:'^password$'},42,'grant_type','boundary'),'password');
+  assert.notEqual(sampleFromSchema({type:'string',enum:['Customer']},42,'role','invalid'),'Customer');
 });
 
 test('schema data generation keeps state-changing valid and boundary identities distinct', () => {

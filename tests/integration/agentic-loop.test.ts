@@ -9,9 +9,10 @@ import { test } from 'node:test';
 import { runGauntlet } from '../../src/gauntlet.js';
 import type { TestPlan } from '../../src/types.js';
 
-async function runFixture(defect = false) {
+async function runFixture(defect = false, rejectFollowup = false) {
   const calls: string[] = [];
   let leadCount = 0;
+  let buildCount = 0;
   let healerEvidence: unknown;
   const model = createServer(async (req, res) => {
     try {
@@ -27,11 +28,13 @@ async function runFixture(defect = false) {
           scenario: { steps: ['Request the smallest valid page size at the largest supported offset.'] }, citations: [{ sourceIndex: 0, lineStart: 1, lineEnd: 1 }] }] };
       } else if (system.startsWith('You manage')) {
         calls.push('lead'); leadCount++;
-        const action = leadCount === 1 ? 'build' : leadCount === 2 ? 'execute' : leadCount === 3 ? 'heal' : leadCount === 4 ? 'execute' : 'accept';
+        const actions = rejectFollowup ? ['build','build','execute','heal','execute','accept'] : ['build','execute','heal','execute','accept'];
+        const action = actions[leadCount-1] ?? 'accept';
         assert.ok(input.allowedActions.includes(action));
         output = { action, reason: `Delegate ${action} based on current run evidence.` };
       } else if (system.startsWith('You implement')) {
         calls.push('builder');
+        buildCount++;
         const candidateId = input.discovery.candidates.find((item: { signal: string }) => item.signal === 'semantic-scenario').id;
         output = { cases: [{ id: 'last-page', title: 'Valid smallest page at distant offset', operationId: 'listUsers', status: 200,
           rationale: 'Valid pagination should return an empty page.', assertions: [{ path: '$.data', operator: 'length-equals', value: 0, sourcePointer: '/paths/~1users/get' }], request: { query: { limit: defect ? 1 : 0, offset: 10000 } }, discoveryIds: [candidateId] }],
@@ -40,6 +43,11 @@ async function runFixture(defect = false) {
             { id: 'read-new', title: 'Read captured user', operationId: 'getUser', status: 200, rationale: 'Read newly created record', request: { pathParams: { id: '${userId}' } }, assertions: [{ path: '$', operator: 'equals', value: '${createdBody}', sourcePointer: '/paths/~1users~1{id}/get' }] },
             { id: 'delete-new', title: 'Remove test user', operationId: 'deleteUser', status: 204, rationale: 'Clean up created record', request: { pathParams: { id: '${userId}' } } },
           ] }], repairs: [], riskNotes: [] };
+        if (rejectFollowup) {
+          const invalid = {id:'invalid',operationId:'invented',status:200,request:{},rationale:'Rejected independent unit'};
+          if (buildCount === 1) (output as {cases:unknown[]}).cases.push(invalid);
+          else output = {cases:[invalid]};
+        }
       } else if (system.startsWith('Independently verify')) {
         calls.push('verifier');
         output = { assessments: input.obligations.map((o: { id: string }) => ({ obligationId: o.id, verdict: 'verified', reason: 'Checks empty data at a valid distant offset.', proofs: [{ testId: 'agent-last-page', assertionPointers: ['/assertions/0'] }] })),
@@ -114,4 +122,15 @@ test('agent healer leaves a genuine API schema defect red even when model critic
   assert.equal(result.heals[0]?.policyDecision, 'denied');
   assert.ok(calls.includes('healer'));
   assert.ok(result.findings.some((item) => item.code === 'CONTRACT_ASSERTION_FAILED'));
+});
+
+test('a rejected follow-up batch executes retained valid tests instead of stalling before execution', {timeout:240_000}, async()=>{
+  const {result,calls,plan}=await runFixture(false,true);
+  assert.equal(result.status,'PASSED',JSON.stringify(result.findings));
+  assert.equal(result.iterations,2);
+  assert.equal(calls.filter(c=>c==='builder').length,2);
+  assert.ok(plan.cases.some(c=>c.id==='agent-last-page'));
+  assert.ok(!plan.cases.some(c=>c.id==='agent-invalid'));
+  const validation=JSON.parse(await readFile(path.join(result.runDir,'agents/builder-2-validation.json'),'utf8'));
+  assert.match(validation.rejections[0],/AGENT_OPERATION_UNKNOWN/);
 });

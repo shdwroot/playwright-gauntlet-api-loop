@@ -203,8 +203,9 @@ export async function loadContract(specPath: string): Promise<NormalizedContract
       if (requestBodyValue) {
         const request = dereferenceObject(document, requestBodyValue, `${pathPointer}/${method}/requestBody`);
         const content = object(request.content, `${pathPointer}/${method}/requestBody/content`);
-        const contentType = Object.keys(content).find((key) => key === 'application/json' || key.endsWith('+json'));
-        if (!contentType) warnings.push(`No JSON request body at ${pathPointer}/${method}`);
+        const contentType = Object.keys(content).find((key) => key === 'application/json' || key.endsWith('+json'))
+          ?? Object.keys(content).find((key) => key === 'application/x-www-form-urlencoded');
+        if (!contentType) warnings.push(`Unsupported request body encoding at ${pathPointer}/${method}`);
         else {
           const media = object(content[contentType], `${pathPointer}/${method}/requestBody/content/${contentType}`);
           requestBody = {

@@ -10,7 +10,7 @@ export async function optionalJson<T>(file: string): Promise<T | undefined> {
 }
 
 export function scenarioLedger(discovery: DiscoveryReport | undefined, plan: TestPlan | undefined) {
-  const cases = [...(plan?.cases ?? []), ...(plan?.workflows.flatMap(workflow => workflow.steps) ?? [])];
+  const cases = [...(plan?.cases ?? []), ...(plan?.workflows.flatMap(workflow => [...workflow.steps, ...(workflow.cleanupSteps ?? [])]) ?? [])];
   return (discovery?.candidates ?? []).map(candidate => {
     const tests = cases.filter(item => item.discovery?.candidateIds.includes(candidate.id)).map(item => item.id);
     // Identity is content-derived, not an assertion that differently worded AI proposals are equivalent.
@@ -68,7 +68,12 @@ export async function writeAnalysisReport(result: RunResult, context: unknown = 
       ...(attempt.execution?.failures ?? []).map(failure => `- ${safe(failure.title)}: ${safe(failure.messages.join('; '))}`),
       ...(attempt.critic?.findings ?? []).map(finding => `- ${finding.severity}: ${safe(finding.code)} — ${safe(finding.message)}`), '',
       `[Attempt evidence](attempts/${attempt.iteration}/execution.json)`, '',
-    ]), '## Repairs', '', ...result.heals.map(heal => `- ${safe(heal.classification)} (${heal.policyDecision}): ${safe(heal.hypothesis)}`), '',
+    ]), '## Repairs', '', ...result.heals.flatMap(heal => [
+      `- After attempt ${heal.iteration}: ${safe(heal.classification)} (${heal.policyDecision}${heal.rollback ? ', rolled back' : ''}): ${safe(heal.hypothesis)}`,
+      `  Files: ${safe(heal.changedFiles.join(', ') || 'none')}.`,
+      ...(heal.diffPath ? [`  Evidence: ${safe(path.relative(result.runDir, heal.diffPath))}.`] : []),
+      `  Subsequent execution: ${attempts.find(a => a.iteration > heal.iteration)?.execution?.status ?? 'not executed; fix is unverified'}.`,
+    ]), '',
     '## Final findings', '', ...result.findings.map(finding => `- ${finding.severity}: ${safe(finding.code)} — ${safe(finding.message)}`), '',
     '## Model usage', '', `${usage.calls} completed calls; ${usage.inputTokens} reported input tokens; ${usage.outputTokens} reported output tokens. ${usage.callsWithoutUsage} calls omitted token usage.`, '',
     '[Structured analysis and source citations](analysis.json) · [Final result](result.json)', ''];

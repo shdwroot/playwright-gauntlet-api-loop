@@ -5,6 +5,7 @@ Start with the [repository README](../README.md) for the live loop and one-comma
 | Need | Guide |
 | --- | --- |
 | Configure an endpoint, credentials, models and policy | [Configuration](configuration.md) |
+| Start from a URL and enable API source repair | [Autonomous onboarding](autonomous-onboarding.md) |
 | Understand agents, coverage, watch mode and repair limits | [Agentic loop](agentic-loop.md) |
 | Follow data flow, components and trust boundaries | [Architecture](architecture.md) |
 | Look up commands, fields, statuses and artifacts | [Framework reference](../training/reference.md) |

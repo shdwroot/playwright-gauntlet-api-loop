@@ -9,7 +9,10 @@ export function redactAgentText(value: string): string {
 export function redactAgentData(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactAgentData);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key,
-    /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|client[_-]?secret|password|access[_-]?token)$/i.test(key) && typeof nested === 'string'
-      ? '[REDACTED]' : redactAgentData(nested)]));
+    key === 'capture' && nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? Object.fromEntries(Object.entries(nested).map(([name, pointer]) => [name, typeof pointer === 'string' && /^\$(?:\.[A-Za-z0-9_-]+)*$/.test(pointer) ? pointer : '[REDACTED]']))
+      : /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|client[_-]?secret|password|access[_-]?token)$/i.test(key) && typeof nested === 'string'
+      ? (/^(?:Bearer )?\$\{[A-Za-z][A-Za-z0-9_]*\}$/.test(nested)
+        || (key.toLowerCase() === 'password' && /^gauntlet-\$\{runId\}[A-Za-z0-9!_-]{0,24}$/i.test(nested)) ? nested : '[REDACTED]') : redactAgentData(nested)]));
   return typeof value === 'string' ? redactAgentText(value) : value;
 }

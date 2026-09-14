@@ -110,6 +110,23 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
   if (provider !== 'deterministic' && provider !== 'openai') throw new Error('CONFIG_INVALID: agents.provider must be deterministic or openai');
 
   const config: GauntletConfig = {
+    ...(raw.fixtures ? { fixtures: (() => {
+      const fixtures = requireRecord(raw, 'fixtures');
+      if (fixtures.adapter !== 'dvra' || !Array.isArray(fixtures.command) || fixtures.command.length === 0 || fixtures.command.some(v => typeof v !== 'string' || !v)) throw new Error('CONFIG_INVALID: fixtures adapter/command');
+      const apiOrigin = new URL(typeof fixtures.apiOrigin === 'string' ? fixtures.apiOrigin : 'http://127.0.0.1:8091');
+      if (apiOrigin.protocol !== 'http:' || !['127.0.0.1','localhost','[::1]'].includes(apiOrigin.hostname) || apiOrigin.pathname !== '/' || apiOrigin.search || apiOrigin.hash || apiOrigin.username || apiOrigin.password) throw new Error('CONFIG_INVALID: fixtures.apiOrigin must be an HTTP loopback origin inside the API container');
+      return { adapter: 'dvra' as const, command: fixtures.command as string[], apiOrigin: apiOrigin.origin };
+    })() } : {}),
+    ...(raw.sourceRepair ? { sourceRepair: (() => {
+      const repair = requireRecord(raw, 'sourceRepair');
+      const strings = (key: string): string[] => {
+        const value = repair[key];
+        if (!Array.isArray(value) || value.length === 0 || value.some(v => typeof v !== 'string' || !v.trim())) throw new Error(`CONFIG_INVALID: sourceRepair.${key} must be a nonempty string array`);
+        return value as string[];
+      };
+      return { root: path.resolve(root, requireString(repair, 'root')), include: strings('include'), verifyCommand: strings('verifyCommand'), restartCommand: strings('restartCommand'),
+        maxAttempts: positiveInteger(repair, 'maxAttempts', 3), commandTimeoutMs: positiveInteger(repair, 'commandTimeoutMs', 300_000) };
+    })() } : {}),
     ...(raw.isolation ? { isolation: (() => {
       const isolation = requireRecord(raw, 'isolation');
       return { operationId: requireString(isolation, 'operationId'), request: requireRecord(isolation, 'request') };

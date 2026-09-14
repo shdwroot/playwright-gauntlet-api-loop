@@ -37,4 +37,4 @@ Each adapter needs extraction/normalization checks **and generated request execu
 
 ## Acceptance criteria for later milestones
 
-A new business rule with no new endpoint must trigger discovery, implementation, execution and a revised report. Repairable test faults must show a verified repair; real product defects must remain red. Restart must retain identities, results and validated work. Each supported input format needs source-to-test provenance, and unsupported or unobservable requirements must remain explicit.
+A new business rule with no new endpoint must trigger discovery, implementation, execution and a revised report. Repairable test faults must show a verified repair; real product defects must remain red until a scoped application repair passes an unchanged regression. Restart must retain identities, results and validated work. Each supported input format needs source-to-test provenance, and unsupported or unobservable requirements must remain explicit.

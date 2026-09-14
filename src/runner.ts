@@ -91,6 +91,7 @@ export async function runPlaywright(config: GauntletConfig, runId: string, attem
     GAUNTLET_MAX_RESPONSE_BYTES: String(config.safety.maxResponseBytes),
     GAUNTLET_TEST_TIMEOUT_MS: String(config.timeoutMs),
     GAUNTLET_RUN_ID: runId,
+    GAUNTLET_FIXTURES: config.fixtures ? JSON.stringify(config.fixtures) : '',
   };
   const started = Date.now();
   const result = await new Promise<{ code: number }>((resolve) => {
@@ -99,7 +100,7 @@ export async function runPlaywright(config: GauntletConfig, runId: string, attem
     const child = spawn(process.execPath, [cliPath, 'test', '--config', configPath], { cwd: process.cwd(), env, stdio: ['ignore', stdoutFd, stderrFd] });
     // Test timeout is per case. Collection and reporters can be slow on a cold
     // Playwright start, so the orchestration watchdog must be a separate budget.
-    const suiteTimeoutMs = Math.max(180_000, config.timeoutMs * 2);
+    const suiteTimeoutMs = Math.max(180_000, config.timeoutMs * 2, config.fixtures ? config.safety.maxRequestsPerRun * 3000 : 0);
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       setTimeout(() => child.kill('SIGKILL'), 5_000).unref();
