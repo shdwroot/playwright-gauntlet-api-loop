@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:tests": "esbuild tests/**/*.test.ts --outdir=dist/tests --outbase=tests --format=esm --platform=node --target=node20",
     "pretest": "npm run build --silent && npm run build:tests --silent",
-    "test": "node --test dist/tests/**/*.test.js",
+    "test": "node --test dist/tests/**/*.test.js examples/the-witness/live/lookup-status.test.mjs",
     "pretest:unit": "npm run build --silent && npm run build:tests --silent",
     "test:unit": "node --test dist/tests/unit/**/*.test.js",
     "pretest:integration": "npm run build --silent && npm run build:tests --silent",
@@ -24,10 +24,14 @@
     "precourse:example": "npm run build --silent",
     "course:example": "node training/example-project/run-demo.mjs",
     "witness:demo": "node examples/the-witness/run-demo.mjs",
+    "witness:live:preflight": "npm run gauntlet -- run --config examples/the-witness/live/gauntlet.safe.config.json --inject-stale-data",
+    "witness:live:safe": "WITNESS_LIVE_MODE=safe playwright test --config examples/the-witness/live/playwright.config.mjs",
+    "witness:live:full": "WITNESS_LIVE_MODE=full playwright test --config examples/the-witness/live/playwright.config.mjs",
+    "agentic:verify": "npm run build --silent && node scripts/verify-agentic-live.mjs",
     "fixture": "node fixtures/sample-api.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "dependencies": {
     "@playwright/test": "1.63.0",

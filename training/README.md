@@ -87,8 +87,9 @@ The generated directory and run evidence are ignored by Git. Regenerate them ins
 2. [Walkthrough 2: evidence and safe healing](walkthroughs/02-evidence-and-healing.md)
 3. [Walkthrough 3: bring your own API](walkthroughs/03-bring-your-own-api.md)
 4. [Walkthrough 4: logs and documents](walkthroughs/04-context-discovery.md)
-5. [Framework reference](reference.md)
-6. [Architecture and trust boundaries](../docs/architecture.md)
+5. [Walkthrough 5: The Witness live production journey](walkthroughs/05-the-witness-live-production.md)
+6. [Framework reference](reference.md)
+7. [Architecture and trust boundaries](../docs/architecture.md)
 
 ## Rules worth remembering
 

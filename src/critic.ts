@@ -110,9 +110,9 @@ export class CriticAgent {
         }
       }
       const snapshots = new Map(plan.discovery.sources.map((source) => [source.id, source]));
-      const executableCandidateIds = new Set(plan.cases.flatMap((testCase) => testCase.discovery?.candidateIds ?? []));
+      const executableCandidateIds = new Set([...plan.cases, ...plan.workflows.flatMap((workflow) => workflow.steps)].flatMap((testCase) => testCase.discovery?.candidateIds ?? []));
       for (const candidate of plan.discovery.candidates) {
-        if ((candidate.disposition === 'generate' || candidate.disposition === 'merge') && candidate.evidence.length === 0) {
+        if ((candidate.disposition === 'generate' || candidate.disposition === 'merge') && candidate.evidence.length === 0 && !(candidate.origin === 'llm' && candidate.contractPointers.length > 0)) {
           findings.push(finding('DISCOVERY_CITATION_MISSING', `Executable discovery candidate ${candidate.id} lacks evidence.`, [candidate.id], 'regenerate-artifacts'));
         }
         if ((candidate.disposition === 'generate' || candidate.disposition === 'merge') && !candidate.operationId) {
@@ -156,6 +156,7 @@ export class CriticAgent {
         manifest,
         coverage,
         execution,
+        plan,
         deterministicFindings: findings,
         verifiedFacts: {
           artifactIntegrity: integrity.valid,
@@ -184,6 +185,7 @@ export class CriticAgent {
       findings,
       criticId: invocation.agentId,
       evidenceHash: sha256(stableStringify(criticInput)),
+      invocation,
     };
   }
 }

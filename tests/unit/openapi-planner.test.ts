@@ -18,7 +18,7 @@ test('normalizes the sample contract with stable traceability', async () => {
 });
 
 test('produces byte-stable cases, boundaries, auth negatives, and a workflow', async () => {
-  const { config } = await loadConfig();
+  const { config } = await loadConfig('gauntlet.offline.config.json');
   const contract = await loadContract(config.spec);
   const first = buildPlan(contract, config);
   const second = buildPlan(contract, config);

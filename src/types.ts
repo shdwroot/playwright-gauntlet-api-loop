@@ -102,7 +102,8 @@ export type DiscoverySignal =
   | 'conflict'
   | 'oversized-payload'
   | 'contract-violation'
-  | 'unclassified';
+  | 'unclassified'
+  | 'semantic-scenario';
 export type DiscoveryDisposition = 'generate' | 'merge' | 'report-only' | 'reject';
 
 export interface DiscoverySourceConfig {
@@ -123,6 +124,7 @@ export interface DiscoveryConfig {
   maxCandidatesPerOperation: number;
   maxExcerptCharacters: number;
   minimumConfidence: number;
+  maxAgentInputCharacters?: number;
 }
 
 export interface DiscoveryEvidence {
@@ -137,6 +139,10 @@ export interface DiscoveryEvidence {
 export interface DiscoveryCandidate {
   id: string;
   signal: DiscoverySignal;
+  title?: string;
+  rationale?: string;
+  scenario?: unknown;
+  origin?: 'llm' | 'deterministic';
   method?: HttpMethod;
   observedPath?: string;
   observedStatus?: number;
@@ -170,6 +176,7 @@ export interface DiscoveryReport {
   candidates: DiscoveryCandidate[];
   warnings: string[];
   redactionCount: number;
+  analysis?: { mode: 'llm' | 'deterministic' | 'disabled'; invocations: AgentInvocation[] };
 }
 
 export interface ExpectedResponse {
@@ -178,7 +185,16 @@ export interface ExpectedResponse {
   schema?: JsonSchema;
 }
 
+export interface ResponseAssertion {
+  path: string;
+  operator: 'equals' | 'not-equals' | 'length-equals' | 'contains' | 'gte' | 'lte';
+  value: unknown;
+  sourcePointer: string;
+}
+
 export interface TestCasePlan {
+  authoredBy?: 'agent';
+  assertions?: ResponseAssertion[];
   id: string;
   title: string;
   kind: CaseKind;
@@ -235,10 +251,24 @@ export interface TestPlan {
   discovery?: DiscoveryReport;
 }
 
+export interface AgentInvocation {
+  agentId: string;
+  model: string;
+  output: unknown;
+  promptHash: string;
+  responseHash: string;
+  durationMs?: number;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
 export interface AgentConfig {
   provider: 'deterministic' | 'openai';
   builderModel: string;
   criticModel: string;
+  discoveryModel?: string;
+  leadModel?: string;
+  healerModel?: string;
+  timeoutMs?: number;
   openaiBaseUrl?: string;
   apiKeyEnv?: string;
 }
@@ -318,6 +348,7 @@ export interface ExecutionSummary {
   stdoutPath: string;
   stderrPath: string;
   failureFingerprints: string[];
+  failures?: Array<{ title: string; messages: string[]; exchanges: unknown[] }>;
 }
 
 export interface CriticFinding {
@@ -335,6 +366,7 @@ export interface CriticVerdict {
   findings: CriticFinding[];
   criticId: string;
   evidenceHash: string;
+  invocation?: AgentInvocation;
 }
 
 export interface HealAudit {

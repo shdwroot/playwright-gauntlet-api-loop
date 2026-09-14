@@ -1,0 +1,7 @@
+[mcp_servers.render]
+url = "https://mcp.render.com/mcp"
+auth = "oauth"
+default_tools_approval_mode = "writes"
+
+[mcp_servers.render.oauth]
+client_id = "codex"

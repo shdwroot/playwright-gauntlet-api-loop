@@ -1,3 +1,5 @@
+import type { AgentProvider } from './agents.js';
+import { redactAgentData } from './agent-redaction.js';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -74,4 +76,20 @@ export class RunLedger {
 export function newRunId(): string {
   const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
   return `${timestamp}-${process.pid}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+export function auditedAgentProvider(underlying: AgentProvider, ledger: RunLedger): AgentProvider {
+  let sequence = 0;
+  return { async invoke(role, model, system, input) {
+    const call = ++sequence;
+    await ledger.write(`agents/calls/${call}-${role}-input.json`, redactAgentData({ role, model, system, input }));
+    try {
+      const reply = await underlying.invoke(role, model, system, input);
+      await ledger.write(`agents/calls/${call}-${role}-output.json`, redactAgentData(reply));
+      return reply;
+    } catch (error) {
+      await ledger.write(`agents/calls/${call}-${role}-error.json`, { error: errorMessage(error) });
+      throw error;
+    }
+  } };
 }

@@ -17,7 +17,7 @@ import { executeGeneratedCase, executeGeneratedWorkflow, loadGeneratedPlan, test
 
 const plan = loadGeneratedPlan(import.meta.url);
 
-test.describe.configure({ mode: 'serial' });
+test.describe.configure({ mode: 'default' });
 
 for (const planned of plan.cases) {
   test(\`[\${planned.id}] \${planned.title}\`, async ({ request }, testInfo) => {

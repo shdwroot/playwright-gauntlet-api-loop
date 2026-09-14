@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   fixture.stderr.on('data', (chunk: Buffer) => { fixtureError += chunk.toString(); });
   try {
     await waitForFixture();
-    const result = await runGauntlet({ injectStaleData: true });
+    const result = await runGauntlet({ configPath: 'gauntlet.offline.config.json', injectStaleData: true });
     console.log(JSON.stringify({ demo: 'stale generated data rejected, safely healed, and regression-tested', status: result.status, iterations: result.iterations, heals: result.heals, runDir: result.runDir }, null, 2));
     if (result.status !== 'PASSED' || result.iterations !== 2 || result.heals.length !== 1) process.exitCode = 1;
   } finally {

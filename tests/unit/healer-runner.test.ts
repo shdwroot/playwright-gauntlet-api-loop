@@ -13,7 +13,7 @@ import { parseAgentFindings } from '../../src/critic.js';
 import type { GauntletConfig } from '../../src/types.js';
 
 async function tempConfig(): Promise<GauntletConfig> {
-  const { config } = await loadConfig();
+  const { config } = await loadConfig('gauntlet.offline.config.json');
   const root = await mkdtemp(path.join(tmpdir(), 'api-gauntlet-unit-'));
   await cp(config.spec, path.join(root, 'spec.yaml'));
   return { ...config, spec: path.join(root, 'spec.yaml'), generatedDir: path.join(root, 'generated'), artifactsDir: path.join(root, 'runs') };

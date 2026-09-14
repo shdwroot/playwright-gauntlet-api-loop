@@ -1,3 +1,5 @@
+import { runAgenticGauntlet } from './agent-loop.js';
+import type { AgentProvider } from './agents.js';
 import path from 'node:path';
 import type { CriticFinding, HealAudit, RunResult } from './types.js';
 import { loadConfig } from './config.js';
@@ -6,7 +8,7 @@ import { BuilderAgent, createAgentProvider } from './agents.js';
 import { CriticAgent } from './critic.js';
 import { generateArtifacts, verifyGeneratedArtifacts } from './generator.js';
 import { healGeneratedArtifacts, injectStaleGeneratedData } from './healer.js';
-import { newRunId, RunLedger } from './evidence.js';
+import { auditedAgentProvider, newRunId, RunLedger } from './evidence.js';
 import { runPlaywright } from './runner.js';
 import { sha256, stableStringify } from './utils.js';
 import { discoverScenarios } from './discovery.js';
@@ -15,10 +17,12 @@ export interface RunOptions {
   configPath?: string;
   injectStaleData?: boolean;
   runId?: string;
+  agentProvider?: AgentProvider;
 }
 
 export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> {
   const { config } = await loadConfig(options.configPath);
+  if (config.agents.provider === 'openai') return runAgenticGauntlet(config, options);
   const contract = await loadContract(config.spec);
   const discovery = await discoverScenarios(contract, config);
   const runId = options.runId ?? newRunId();
@@ -111,15 +115,32 @@ export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> 
 export async function generateOnly(configPath?: string): Promise<{ manifestPath: string; cases: number; workflows: number }> {
   const { config } = await loadConfig(configPath);
   const contract = await loadContract(config.spec);
-  const discovery = await discoverScenarios(contract, config);
-  const provider = createAgentProvider(config.agents);
-  const { plan } = await new BuilderAgent(provider).build(contract, config, [], config.discovery.enabled ? discovery : undefined);
-  const manifest = await generateArtifacts(plan, config);
+  let provider = createAgentProvider(config.agents);
+  let ledger: RunLedger | undefined;
+  if (config.agents.provider === 'openai') {
+    ledger = new RunLedger(newRunId(), config);
+    await ledger.initialize(contract.specHash);
+    provider = auditedAgentProvider(provider, ledger);
+    console.error(`Generation evidence: ${ledger.runDir}`);
+  }
+  const discovery = await discoverScenarios(contract, config, provider);
+  await ledger?.write('discovery/report.json', discovery);
+  const built = await new BuilderAgent(provider).build(contract, config, [], config.discovery.enabled || config.agents.provider === 'openai' ? discovery : undefined);
+  await ledger?.write('agents/builder.json', built.invocation);
+  await ledger?.write('plan.json', built.plan);
+  const manifest = await generateArtifacts(built.plan, config);
   return { manifestPath: path.join(config.generatedDir, 'manifest.json'), cases: manifest.caseCount, workflows: manifest.workflowCount };
 }
 
 export async function discoverOnly(configPath?: string) {
   const { config } = await loadConfig(configPath);
   const contract = await loadContract(config.spec);
-  return discoverScenarios(contract, config);
+  if (config.agents.provider !== 'openai') return discoverScenarios(contract, config);
+  const ledger = new RunLedger(newRunId(), config);
+  await ledger.initialize(contract.specHash);
+  await ledger.record('DISCOVER', 0, 'Live semantic discovery');
+  console.error(`Discovery evidence: ${ledger.runDir}`);
+  const report = await discoverScenarios(contract, config, auditedAgentProvider(createAgentProvider(config.agents), ledger));
+  await ledger.write('discovery/report.json', report);
+  return report;
 }

@@ -9,9 +9,9 @@ The repository did not contain an OpenAPI or Swagger document, so
 
 The default target is the loopback-only `witness-api.mjs` contract fixture.
 It creates no production users, sends no email, performs no OSINT lookups, and
-never calls an OAuth provider. The production Render health endpoint returned
-HTTP 503 with an owner-suspended message during setup, so production execution
-was neither possible nor appropriate.
+never calls an OAuth provider. Production is intentionally excluded from this
+default command. The separate live profiles require an exact hostname allowlist
+and explicit confirmation for any record creation or external action.
 
 The OpenAPI document covers all 21 observed HTTP routes. Nineteen are covered by
 generated cases or workflows. The OAuth callback and handoff exchange remain
@@ -63,3 +63,12 @@ The final JSON output prints `runDir`. Inside it, inspect:
 
 Generated artifacts and run evidence live below `examples/the-witness/.gauntlet/`
 and are ignored by Git.
+
+## Walk through production yourself
+
+Use [Walkthrough 5](../../training/walkthroughs/05-the-witness-live-production.md)
+for the ordered production checks. It starts with an OpenAI-assisted GET-only
+preflight, then offers a safe disposable-record journey and a separately gated
+full provider/analysis/email journey. The guide states the expected result and
+stop condition at every step; neither live journey runs as part of
+`npm run witness:demo`.

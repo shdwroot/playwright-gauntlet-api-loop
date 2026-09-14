@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { discoverOnly, generateOnly, runGauntlet } from './gauntlet.js';
-import { loadConfig } from './config.js';
+import { loadConfig, loadProjectEnvironment } from './config.js';
 import { loadContract } from './openapi.js';
 import { errorMessage } from './utils.js';
 
@@ -21,6 +21,9 @@ Usage:
   api-gauntlet run [--config path] [--inject-stale-data]
   api-gauntlet report <run-id-or-directory> [--config path]
 
+Agentic mode: append --agentic --model <model-id> (or set OPENAI_MODEL). Requires OPENAI_API_KEY.
+Config agents.provider=openai also enables agentic mode, with separate role models.
+
 Exit codes: 0 passed, 1 failed, 2 blocked/stalled, 3 framework/config error.`);
 }
 
@@ -28,6 +31,19 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0] ?? 'help';
   const configPath = option(args, '--config');
+  loadProjectEnvironment(configPath);
+  if (args.includes('--agentic')) {
+    const model = option(args, '--model') ?? process.env.OPENAI_MODEL;
+    if (!model || model.startsWith('--')) throw new Error('AGENT_MODEL_REQUIRED: use --model or set OPENAI_MODEL');
+    process.env.GAUNTLET_AGENT_PROVIDER = 'openai';
+    process.env.GAUNTLET_AGENT_MODEL = model;
+  }
+  if (['discover', 'generate', 'run', 'loop'].includes(command)) {
+    const { config } = await loadConfig(configPath);
+    console.error(config.agents.provider === 'openai'
+      ? `AGENTIC: live model calls enabled (discovery, lead, builder, critic, healer as needed). Model: ${config.agents.builderModel}`
+      : 'OFFLINE: deterministic fixture mode; no LLM calls. Use --agentic --model <model-id> for autonomous agents.');
+  }
   if (command === 'help' || command === '--help' || command === '-h') {
     usage();
     return;

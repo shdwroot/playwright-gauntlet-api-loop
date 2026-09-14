@@ -1,5 +1,8 @@
 # Discover API scenarios from logs and documents
 
+This is the **offline deterministic fixture walkthrough**. For live semantic discovery and the autonomous implementation/healing loop, use the [agentic guide](../../docs/agentic-loop.md). The default root config now uses Luna; commands below explicitly select the offline config.
+
+
 This walkthrough adds operational context without handing authority to that context. You will inspect the included adversarial corpus, run discovery without contacting an API, trace candidates into the generated plan, and verify the cases against the loopback fixture.
 
 ## The authority rule
@@ -37,7 +40,7 @@ The sample sets `required: true`, so deleting or renaming a source fails rather 
 ## Step 3: Run discovery without network execution
 
 ```bash
-npm run gauntlet -- discover
+npm run gauntlet -- discover --config gauntlet.offline.config.json
 ```
 
 This command reads the OpenAPI file and configured local sources only. Search the JSON output for:
@@ -71,7 +74,7 @@ Expected sample decisions:
 ## Step 4: Generate and trace the plan
 
 ```bash
-npm run gauntlet -- generate
+npm run gauntlet -- generate --config gauntlet.offline.config.json
 ```
 
 Open `.gauntlet/generated/plan.generated.json`. For every case whose `kind` is `discovered`, verify:
@@ -97,7 +100,7 @@ Terminal 2:
 
 ```bash
 export SAMPLE_API_KEY=gauntlet-local-key
-npm run gauntlet -- run
+npm run gauntlet -- run --config gauntlet.offline.config.json
 ```
 
 A clean sample run executes 20 standalone cases plus one workflow test and reaches `PASSED` with score `100`. The run directory contains `discovery/report.json`, the signed plan and generated manifest, Playwright JSON/JUnit/HTML evidence, redacted exchanges, critic findings, and the terminal result.

@@ -1,6 +1,6 @@
 # Architecture
 
-The framework is an explicit evaluator/optimizer state machine. Discovery now has two inputs: the authoritative OpenAPI contract and optional untrusted local context.
+The framework runs a lead-managed discovery, implementation, execution and repair loop in OpenAI mode. The default project models are gpt-5.6-luna. The deterministic provider is an explicit offline fixture mode. See [agentic loop](agentic-loop.md) for the executable proposal format, limits and evidence. Discovery now has two inputs: the authoritative OpenAPI contract and optional untrusted local context.
 
 ```text
 DISCOVER → PLAN → GENERATE → EXECUTE → CRITIQUE
@@ -14,7 +14,7 @@ configured logs/documents
   → path + type + byte limits
   → immutable source hashes
   → redaction before persistence/agent access
-  → deterministic signal extraction
+  → bounded deterministic extraction + LLM analysis of complete source text
   → exact method/path OpenAPI mapping
   → generate | merge | report-only | reject
   → planner (OpenAPI remains the assertion oracle)
@@ -22,21 +22,21 @@ configured logs/documents
 
 ## Roles
 
-- **Lead** (`src/gauntlet.ts`) owns state transitions, budgets, repetition detection, and terminal status.
+- **Lead agent** (`src/agents.ts`) chooses the next action and delegates concrete tasks using the plan, discoveries and evidence. `src/agent-loop.ts` enforces action validity, execution/request budgets, repetition detection and acceptance gates.
 - **Discovery router** (`src/discovery.ts`) enumerates configured local sources, rejects unsafe input, redacts secrets/PII, extracts scenario signals, maps them exactly to OpenAPI operations, and preserves every source disposition.
-- **Builder** (`src/agents.ts`) starts from a deterministic OpenAPI compiler. An optional model can add typed risk notes, but cannot write executable code or verdicts.
-- **Renderer** (`src/generator.ts`) is the only component that writes generated tests. The same contract, seed, and renderer produce the same bytes.
+- **Builder** (`src/agents.ts`) starts with baseline contract coverage and authors concrete requests and stateful workflows. `src/agent-plan.ts` validates these proposals and incorporates them into the executable plan. Rejected proposals and critic findings are fed back to the agent.
+- **Renderer** (`src/generator.ts`) is the only component that writes generated tests. The same accepted plan and renderer produce the same bytes; live model-authored plans can differ between runs.
 - **Executor** (`src/runner.ts`) runs the signed candidate with Playwright Test and `APIRequestContext`.
 - **Critic** (`src/critic.ts`) receives the immutable contract identity, anonymous candidate manifest, and raw execution summary. Hard gates override any model opinion or score.
-- **Healer** (`src/healer.ts`) may restore generated files from the trusted plan. It cannot edit the OpenAPI contract, configuration, custom tests, or system under test.
+- **Healer agent** (`src/agents.ts`) diagnoses execution failures and revises generated request implementations or adds workflows. Existing cases and response expectations are preserved. `src/healer.ts` additionally repairs artifact drift from the accepted plan. Neither path edits the API application or contract.
 
-Builder and critic calls have separate role prompts and invocation identities. With `agents.provider: "openai"`, they can use different models. The deterministic provider keeps CI offline and repeatable.
+Discovery, lead, builder, critic and healer calls have separate role prompts and invocation identities. With `agents.provider: "openai"`, they can use different models. The deterministic provider keeps CI offline and repeatable.
 
 ## Trust boundaries
 
 The OpenAPI contract is the test oracle. Runtime responses, system logs, incident notes, and documents are observations, never a source for expected statuses or schemas. Source text is tainted data and is never executed as an agent instruction. An observed `500` where OpenAPI declares success is retained as a contract-violation finding; it never becomes an expected `500`. An undocumented endpoint is a contract gap, not a generated request.
 
-Discovery is deterministic and local-only. Every configured source is parsed or the run fails closed; no remote URLs, archives, binaries, non-UTF-8 text, symlinks, paths outside the config root, or files above configured limits are accepted. Source order does not control candidate order. Duplicate semantic candidates merge citations rather than multiplying tests.
+Discovery reads local sources and, in OpenAI mode, sends bounded redacted text and contract context to the configured model. Offline discovery is deterministic and local-only. Every configured source is parsed or the run fails closed; no remote URLs, archives, binaries, non-UTF-8 text, symlinks, paths outside the config root, or files above configured limits are accepted. Source order does not control candidate order. Deterministic duplicates merge citations. LLM proposals retain their rationale, source citations, and model invocation.
 
 Redaction occurs before excerpts reach plan artifacts or optional model agents. Bearer tokens, credential headers/fields, sensitive query parameters, emails, and customer-like identifiers are replaced with typed placeholders. Generated request values remain synthetic and schema-derived; observed identifiers and payloads are not replayed.
 

@@ -136,7 +136,7 @@ function observedPathParams(template: string, observedPath: string | undefined):
   return parameters;
 }
 
-function makeCase(
+export function makeCase(
   operation: NormalizedOperation,
   specHash: string,
   seed: number,
@@ -166,7 +166,7 @@ function makeCase(
   };
 }
 
-function allowed(operation: NormalizedOperation, config: GauntletConfig): string | undefined {
+export function allowed(operation: NormalizedOperation, config: GauntletConfig): string | undefined {
   if (!config.safety.allowedMethods.includes(operation.method)) return `Method ${operation.method} is denied by safety.allowedMethods`;
   if (operation.destructive && !config.safety.allowDestructive) return `Destructive operation ${operation.method} requires safety.allowDestructive=true`;
   return undefined;
@@ -310,7 +310,7 @@ export function buildPlan(contract: NormalizedContract, config: GauntletConfig, 
 
   if (planDiscovery) {
     for (const candidate of planDiscovery.candidates) {
-      if (!candidate.operationId) continue;
+      if (!candidate.operationId || !['generate', 'merge'].includes(candidate.disposition)) continue;
       const operation = contract.operations.find((item) => item.operationId === candidate.operationId);
       if (!operation || allowed(operation, config)) {
         if (candidate.disposition === 'generate') {

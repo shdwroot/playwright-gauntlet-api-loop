@@ -19,6 +19,8 @@
 | `agents.provider` | `deterministic` for offline CI or `openai` for separate live model calls. |
 | `quality.minimumScore` | Numeric floor; all hard gates must also pass. |
 
+The default root config uses `openai` and `gpt-5.6-luna` for all five roles. `.env` beside the config is loaded automatically without overriding exported values. `gauntlet.offline.config.json` preserves the deterministic fixture configuration. See [the agentic loop guide](agentic-loop.md).
+
 For OpenAI mode, set `agents.provider` to `openai`, choose separate `builderModel` and `criticModel`, and export the environment variable named by `agents.apiKeyEnv` (default `OPENAI_API_KEY`). The key is not persisted or sent in critic evidence.
 
 Operation-level `security` produces an unauthenticated negative case when a `401` response is declared. Local schema examples, enums, formats, required properties, and numeric/string boundaries drive deterministic data. `x-gauntlet-conflict-value` can name a known duplicate fixture value for a declared `409` case.
@@ -63,3 +65,5 @@ POST /users with whitespace-only name should return 422
 Observed values are never test oracles. A candidate is executable only when the method/path has one exact OpenAPI match, the status is declared, policy permits the operation, and the input can be synthesized from the contract. See the [discovery walkthrough](../training/walkthroughs/04-context-discovery.md).
 
 For a complete field-by-field table, see the [framework reference](../training/reference.md#configuration). To build a bounded config for another service, follow [How to test your own API](../training/walkthroughs/03-bring-your-own-api.md).
+
+Agent role overrides: `agents.discoveryModel`, `agents.leadModel`, and `agents.healerModel` default to `builderModel`. `agents.timeoutMs` defaults to 120000. `discovery.maxAgentInputCharacters` defaults to 200000. Agentic runs enforce `safety.maxRequestsPerRun` cumulatively across reruns.

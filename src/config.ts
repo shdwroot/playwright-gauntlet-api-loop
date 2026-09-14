@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { loadEnvFile } from 'node:process';
 import type { DiscoverySourceConfig, GauntletConfig, HttpMethod } from './types.js';
 import { ensureWithin } from './utils.js';
 
@@ -74,10 +75,18 @@ function discoveryConfig(raw: Record<string, unknown>, root: string): GauntletCo
     maxCandidatesPerOperation: positiveInteger(record, 'maxCandidatesPerOperation', 20),
     maxExcerptCharacters: positiveInteger(record, 'maxExcerptCharacters', 512),
     minimumConfidence,
+    maxAgentInputCharacters: positiveInteger(record, 'maxAgentInputCharacters', 200_000),
   };
 }
 
+export function loadProjectEnvironment(configPath = 'gauntlet.config.json'): void {
+  const envPath = path.join(path.dirname(path.resolve(configPath)), '.env');
+  try { loadEnvFile(envPath); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+}
+
 export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{ config: GauntletConfig; configPath: string }> {
+  loadProjectEnvironment(configPath);
   const absoluteConfig = path.resolve(configPath);
   const raw = JSON.parse(await readFile(absoluteConfig, 'utf8')) as Record<string, unknown>;
   const root = path.dirname(absoluteConfig);
@@ -95,7 +104,9 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
   const headersRaw = (raw.headersFromEnv ?? {}) as Record<string, unknown>;
   if (!headersRaw || typeof headersRaw !== 'object' || Array.isArray(headersRaw)) throw new Error('CONFIG_INVALID: headersFromEnv must be an object');
 
-  const provider = agentsRaw.provider;
+  const provider = process.env.GAUNTLET_AGENT_PROVIDER ?? agentsRaw.provider;
+  const modelOverride = process.env.GAUNTLET_AGENT_MODEL;
+  const model = (key: string, fallback?: string): string => modelOverride || (agentsRaw[key] === undefined && fallback ? fallback : requireString(agentsRaw, key));
   if (provider !== 'deterministic' && provider !== 'openai') throw new Error('CONFIG_INVALID: agents.provider must be deterministic or openai');
 
   const config: GauntletConfig = {
@@ -122,8 +133,12 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
     },
     agents: {
       provider,
-      builderModel: requireString(agentsRaw, 'builderModel'),
-      criticModel: requireString(agentsRaw, 'criticModel'),
+      builderModel: model('builderModel'),
+      criticModel: model('criticModel'),
+      discoveryModel: model('discoveryModel', model('builderModel')),
+      leadModel: model('leadModel', model('builderModel')),
+      healerModel: model('healerModel', model('builderModel')),
+      timeoutMs: positiveInteger(agentsRaw, 'timeoutMs', 120_000),
       ...(typeof agentsRaw.openaiBaseUrl === 'string' ? { openaiBaseUrl: agentsRaw.openaiBaseUrl } : {}),
       ...(typeof agentsRaw.apiKeyEnv === 'string' ? { apiKeyEnv: agentsRaw.apiKeyEnv } : {}),
     },

@@ -4,17 +4,18 @@ import { closeSync, openSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ExecutionSummary, GauntletConfig } from './types.js';
+import { redactAgentData } from './agent-redaction.js';
 import { atomicWrite, sha256 } from './utils.js';
 
-interface PlaywrightResult { status?: string; error?: { message?: string }; errors?: Array<{ message?: string }> }
-interface PlaywrightTest { expectedStatus?: string; results?: PlaywrightResult[] }
-interface PlaywrightSpec { tests?: PlaywrightTest[] }
+interface PlaywrightResult { status?: string; error?: { message?: string }; errors?: Array<{ message?: string }>; attachments?: Array<{ name?: string; body?: string }> }
+interface PlaywrightTest { title?: string; expectedStatus?: string; results?: PlaywrightResult[] }
+interface PlaywrightSpec { title?: string; tests?: PlaywrightTest[] }
 interface PlaywrightSuite { specs?: PlaywrightSpec[]; suites?: PlaywrightSuite[] }
 interface PlaywrightReport { suites?: PlaywrightSuite[] }
 
 function allTests(suites: PlaywrightSuite[]): PlaywrightTest[] {
   return suites.flatMap((suite) => [
-    ...(suite.specs ?? []).flatMap((spec) => spec.tests ?? []),
+    ...(suite.specs ?? []).flatMap((spec) => (spec.tests ?? []).map((test) => ({ ...test, title: spec.title ?? test.title ?? 'unknown' }))),
     ...allTests(suite.suites ?? []),
   ]);
 }
@@ -36,6 +37,16 @@ export function summarizePlaywrightReport(report: PlaywrightReport, exitCode: nu
     skipped: statuses.filter((status) => status === 'skipped').length,
     durationMs,
     ...paths,
+    failures: tests.filter((test) => test.results?.some((result) => result.status === 'failed' || result.status === 'timedOut')).slice(0, 50).map((test) => ({
+      title: test.title ?? 'unknown',
+      messages: (test.results ?? []).flatMap((result) => [result.error?.message, ...(result.errors ?? []).map((error) => error.message)])
+        .filter((value): value is string => Boolean(value)).map((value) => String(redactAgentData(value.slice(0, 6000)))),
+      exchanges: (test.results ?? []).flatMap((result) => result.attachments ?? []).filter((attachment) => attachment.name?.endsWith('-exchange.json') && attachment.body)
+        .slice(0, 10).map((attachment) => {
+          try { return redactAgentData(JSON.parse(Buffer.from(attachment.body!, 'base64').toString('utf8').slice(0, 65_536))); }
+          catch { return { unavailable: 'Exchange could not be decoded within evidence limit.' }; }
+        }),
+    })),
     failureFingerprints: [...new Set(messages.map((message) => sha256(message.replace(/\d+ms/g, '<time>')).slice(0, 16)))],
   };
 }

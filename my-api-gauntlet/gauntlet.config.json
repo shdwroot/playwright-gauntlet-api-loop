@@ -1,0 +1,30 @@
+{
+  "projectName": "training-inventory-api",
+  "spec": "openapi.yaml",
+  "baseUrl": "http://127.0.0.1:4020",
+  "generatedDir": ".gauntlet/generated",
+  "artifactsDir": ".gauntlet/runs",
+  "seed": 42,
+  "maxIterations": 3,
+  "timeoutMs": 30000,
+  "headersFromEnv": {
+    "x-api-key": "TRAINING_API_KEY"
+  },
+  "safety": {
+    "allowedHosts": ["127.0.0.1"],
+    "allowedMethods": ["GET", "POST", "DELETE"],
+    "allowDestructive": true,
+    "allowProduction": false,
+    "maxRequestsPerRun": 50,
+    "maxResponseBytes": 65536
+  },
+  "agents": {
+    "provider": "deterministic",
+    "builderModel": "deterministic-v1",
+    "criticModel": "deterministic-v1"
+  },
+  "quality": {
+    "minimumScore": 95,
+    "minimumOperationCoverage": 1
+  }
+}

@@ -1,17 +1,28 @@
 # Playwright API Gauntlet Loop
 
-An executable TypeScript framework that turns an OpenAPI contract into data and Playwright API tests, runs them, critiques real evidence, and safely repairs generated drift until every hard gate passes or the run fails closed.
+The default configuration runs autonomous agents using **gpt-5.6-luna**. Discovery analyzes source text, the lead delegates work, the builder implements tests and workflows, and the healer revises failed test implementations using execution evidence. See the [agentic loop guide](docs/agentic-loop.md).
+
+```bash
+# OPENAI_API_KEY is loaded from the project's untracked .env
+npm run gauntlet -- discover
+npm run gauntlet -- run    # start the configured target API first
+```
+
+`npm run demo` and `gauntlet.offline.config.json` retain the repeatable offline fixture path. Offline discovery is explicitly labeled and makes no LLM calls.
+
+
+An executable TypeScript framework that turns an OpenAPI contract into data and Playwright API tests, runs them, critiques real evidence, and repairs generated test implementations until every hard gate passes or the run fails closed.
 
 This is not a retry wrapper and it does not learn expectations from observed responses. Playwright's `APIRequestContext` is the execution authority; the OpenAPI contract remains the oracle.
 
 ## What works
 
 - OpenAPI 3.0/3.1 YAML or JSON ingestion with local `$ref` resolution and duplicate-operation detection.
-- Bounded additional-source discovery from UTF-8 logs, JSON/JSONL, Markdown, text, and YAML documents, with exact OpenAPI corroboration and line-level provenance.
+- LLM semantic discovery plus bounded deterministic extraction from UTF-8 logs, JSON/JSONL, Markdown, text, and YAML documents, with exact OpenAPI corroboration and line-level provenance.
 - Stable positive, validation, boundary, authorization, not-found, conflict, and multi-step workflow cases.
-- Deterministic data and generated test bytes from a fixed seed.
+- Repeatable rendering from the accepted test plan; live agents author and revise the plan.
 - Separate lead, builder, executor, critic, and healer roles.
-- Offline deterministic agents by default; optional separate OpenAI builder and critic calls.
+- Five live agent roles by default: discovery, lead, builder, critic, and healer; explicit deterministic mode for offline fixtures.
 - JSON, JUnit, HTML, trace, request/response, event-ledger, manifest, critic, and healing evidence.
 - Secret redaction, host/method/request budgets, destructive-operation policy, iteration limits, and repetition stopping.
 - Explicit discovery dispositions (`generate`, `merge`, `report-only`, `reject`) so low-confidence, conflicting, undocumented, or unsafe evidence remains visible without becoming a test.
@@ -19,7 +30,7 @@ This is not a retry wrapper and it does not learn expectations from observed res
 
 ## Quick start
 
-Requirements: Node.js 20 or newer.
+Requirements: Node.js 20.12 or newer.
 
 ```bash
 npm ci
@@ -77,7 +88,7 @@ npm run gauntlet -- report <run-id>
 4. Allowlist the exact host and methods. Leave production and destructive access disabled unless deliberately required.
 5. Run `npm run gauntlet -- generate`, review the signed plan, then run `npm run gauntlet -- run`.
 
-To add operational context, configure local sources under `discovery.sources` and run the read-only discovery route first:
+To add operational context, configure local sources under `discovery.sources` and run discovery first (reads local sources and calls the model; does not execute target requests):
 
 ```bash
 npm run gauntlet -- discover
@@ -89,7 +100,7 @@ The CLI returns `0` only for a hard-gate pass, `1` for a test/framework failure,
 
 ## Safe healing policy
 
-Automatic healing can restore deterministic data, plans, manifests, and rendered tests from the active contract. It records before/after hashes and a diff, then executes the full suite again.
+In agentic mode, the healer diagnoses failures and revises generated test inputs or adds workflows, then reruns the suite. Existing expectations remain fixed. Artifact-integrity repair can also restore generated files from the current accepted plan. It records before/after hashes and a diff, then executes the full suite again.
 
 It will not:
 

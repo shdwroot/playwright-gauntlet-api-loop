@@ -11,7 +11,7 @@ import type { GauntletConfig } from '../../src/types.js';
 import { stableStringify } from '../../src/utils.js';
 
 async function base(): Promise<{ config: GauntletConfig; contract: Awaited<ReturnType<typeof loadContract>> }> {
-  const { config } = await loadConfig();
+  const { config } = await loadConfig('gauntlet.offline.config.json');
   return { config, contract: await loadContract(config.spec) };
 }
 

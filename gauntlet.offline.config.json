@@ -14,26 +14,10 @@
     "enabled": true,
     "required": true,
     "sources": [
-      {
-        "id": "sample-system-log",
-        "path": "context/sample-system.log",
-        "kind": "log"
-      },
-      {
-        "id": "scenario-guidance",
-        "path": "context/scenario-guidance.md",
-        "kind": "document"
-      }
+      { "id": "sample-system-log", "path": "context/sample-system.log", "kind": "log" },
+      { "id": "scenario-guidance", "path": "context/scenario-guidance.md", "kind": "document" }
     ],
-    "allowedExtensions": [
-      ".json",
-      ".jsonl",
-      ".log",
-      ".md",
-      ".txt",
-      ".yaml",
-      ".yml"
-    ],
+    "allowedExtensions": [".json", ".jsonl", ".log", ".md", ".txt", ".yaml", ".yml"],
     "maxFiles": 100,
     "maxFileBytes": 5242880,
     "maxTotalBytes": 26214400,
@@ -43,28 +27,17 @@
     "minimumConfidence": 0.85
   },
   "safety": {
-    "allowedHosts": [
-      "127.0.0.1",
-      "localhost"
-    ],
-    "allowedMethods": [
-      "GET",
-      "POST",
-      "DELETE"
-    ],
+    "allowedHosts": ["127.0.0.1", "localhost"],
+    "allowedMethods": ["GET", "POST", "DELETE"],
     "allowDestructive": true,
     "allowProduction": false,
     "maxRequestsPerRun": 100,
     "maxResponseBytes": 65536
   },
   "agents": {
-    "provider": "openai",
-    "builderModel": "gpt-5.6-luna",
-    "criticModel": "gpt-5.6-luna",
-    "discoveryModel": "gpt-5.6-luna",
-    "leadModel": "gpt-5.6-luna",
-    "healerModel": "gpt-5.6-luna",
-    "timeoutMs": 120000
+    "provider": "deterministic",
+    "builderModel": "deterministic-v1",
+    "criticModel": "deterministic-v1"
   },
   "quality": {
     "minimumScore": 95,

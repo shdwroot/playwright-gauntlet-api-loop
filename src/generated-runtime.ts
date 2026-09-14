@@ -100,7 +100,7 @@ export async function executeGeneratedCase(
   request: APIRequestContext,
   testInfo: TestInfo,
   planned: TestCasePlan,
-  variables: Record<string, unknown> = {},
+  variables: Record<string, unknown> = { runId: process.env.GAUNTLET_RUN_ID ?? 'local-run' },
 ): Promise<unknown> {
   const testCase = substitute(planned, variables) as TestCasePlan;
   const url = renderPath(testCase.path, testCase.pathParams);
@@ -115,6 +115,7 @@ export async function executeGeneratedCase(
       headers,
       ...(testCase.rawBody !== undefined ? { data: Buffer.from(testCase.rawBody, 'utf8') } : testCase.body !== undefined ? { data: testCase.body } : {}),
       failOnStatusCode: false,
+      maxRedirects: 0,
     });
   } catch (error) {
     await testInfo.attach(`${testCase.id}-request.json`, { body: Buffer.from(JSON.stringify(requestEvidence, null, 2)), contentType: 'application/json' });
@@ -129,12 +130,26 @@ export async function executeGeneratedCase(
     body: Buffer.from(JSON.stringify({ request: requestEvidence, response: responseEvidence }, null, 2)),
     contentType: 'application/json',
   });
-  expect(testCase.expected.statuses, `status for ${testCase.id}`).toContain(response.status());
+  expect(testCase.expected.statuses, `status for ${testCase.id}: expected one of [${testCase.expected.statuses.join(", ")}], actual ${response.status()}`).toContain(response.status());
   if (testCase.expected.contentType) expect(contentType, `content-type for ${testCase.id}`).toContain(testCase.expected.contentType.split(';')[0]!);
-  if (testCase.expected.schema && body !== undefined) {
+  if (testCase.expected.schema) {
     expect(validateSchema(body, testCase.expected.schema), `response schema for ${testCase.id}`).toEqual([]);
   }
-  if (testCase.kind === 'positive' && testCase.body && body && typeof testCase.body === 'object' && typeof body === 'object') {
+  for (const assertion of testCase.assertions ?? []) {
+    const actual = assertion.path === '$' ? body : readCapture(body, assertion.path);
+    const label = `scenario assertion ${assertion.path} for ${testCase.id}`;
+    expect(actual, `${label} must exist`).not.toBeUndefined();
+    switch (assertion.operator) {
+      case 'equals': expect(actual, label).toEqual(assertion.value); break;
+      case 'not-equals': expect(actual, label).not.toEqual(assertion.value); break;
+      case 'length-equals': expect(actual, label).toHaveLength(assertion.value as number); break;
+      case 'contains': expect(actual, label).toContain(assertion.value); break;
+      case 'gte': expect(actual, label).toBeGreaterThanOrEqual(assertion.value as number); break;
+      case 'lte': expect(actual, label).toBeLessThanOrEqual(assertion.value as number); break;
+      default: throw new Error('ASSERTION_OPERATOR_UNSUPPORTED');
+    }
+  }
+  if (testCase.kind === 'positive'  && testCase.body && body && typeof testCase.body === 'object' && typeof body === 'object') {
     const sent = testCase.body as Record<string, unknown>;
     const received = body as Record<string, unknown>;
     for (const key of Object.keys(sent).filter((candidate) => candidate in received)) {
