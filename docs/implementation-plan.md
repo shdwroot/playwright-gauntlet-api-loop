@@ -1,58 +1,40 @@
 # Self-maintaining API Gauntlet implementation plan
 
-The delivery target is the lifecycle in `agentic-objectives-audit.md`, using real Luna calls in normal operation. Scripted providers are regression-test fixtures only. `npm run gauntlet -- run` remains the complete one-shot entry point; `run --watch` will keep processing context revisions.
+The target is the [user-defined lifecycle](agentic-objectives-audit.md). Normal operation uses real agents; scripted providers belong to regression tests. The complete entry points are `npm run gauntlet -- run` and `npm run gauntlet -- run --watch`.
 
-## Delivery sequence
+## Delivered and remaining work
 
-1. **Durable lifecycle and reporting** — context fingerprints, serialized execution, revision history, scenario/test/evidence ledger, consolidated Markdown/JSON reports, context-change monitoring, reuse of validated plans when context is unchanged. Detect changes during execution and invalidate acceptance. Preserve all attempt findings in reports.
-2. **Input adapters** — common context/provenance representation; OpenAPI 3 and Swagger 2; Gherkin and requirements text; PDF/DOCX extraction; WSDL/XSD with SOAP transport. Document-only projects must report missing target/operation/oracle information explicitly. Never imply that adding a file extension implements a parser.
-3. **Semantic acceptance** — requirement extraction and conflict handling; stable scenario identities; explicit implemented, blocked, excluded and retired states; evidence-backed semantic gates alongside immutable contract gates. Operation coverage is never presented as complete scenario coverage.
-4. **Implementation and repair** — header/XML assertions, workflow dependencies and cleanup, capture repairs, targeted evidence inspection, implementation-versus-oracle separation, rollback, and preservation of reproducible product defects.
-5. **Cross-revision reconciliation** — agents review changed context and previous scenarios/repairs, regenerate affected tests, preserve unaffected work, and execute regression before publishing a new report. Add provider budget/recovery controls and interruption/resume behavior.
-6. **Acceptance campaign** — real Luna runs against representative REST and SOAP fixtures; changed requirements without a new endpoint; repairable faults; genuine defects; unresolved scenario gates; restart and concurrent-trigger tests. Keep live evidence separate from scripted orchestration tests.
+| Area | Delivered | Still to implement |
+| --- | --- | --- |
+| Lifecycle | Revision fingerprints, serialized watch runs, locks, history, unchanged-revision plan reuse | Automatic crash recovery and resumable execution |
+| Analysis | Consolidated Markdown/JSON, complete attempt history, repairs and model usage | Optional final analyst role and richer requirement/conflict analysis |
+| Semantic coverage | Persistent obligations, independent verifier, fresh assertion evidence, reviewed replacement mappings | Exhaustive discovery assurance is not available; broader coverage dimensions and assertion effectiveness checks |
+| Test implementation | Typed requests/assertions/workflows, setup insertion, cleanup and reset hooks | XML and arbitrary response-header assertions, capture/order repairs and broader implementation repair |
+| Reconciliation | Retain omitted obligations; reconcile duplicates/changed context to freshly verified replacements | Selective regeneration and automated handling of ambiguous requirement removals |
+| Inputs | OpenAPI 3.x plus bounded UTF-8 context | Swagger 2, WSDL/XSD/SOAP, structured Gherkin, PDF/DOCX and requirements-only projects |
+| Verification | Offline regression and focused real Luna lifecycle checks | Representative multi-format and stateful API acceptance campaign |
 
-## Completion criteria
+These partial areas must not be described as wholly complete. See [recorded validation](validation.md); historical counts and fixture runs are not current production certification.
 
-Every supported format has an extraction/normalization test and an execution example. Every relevant requirement links to scenario disposition and test evidence. A context change triggers the whole lifecycle without manual rediscovery. Repairs survive restarts, and a changed requirement cannot inherit a stale pass. Reports explain coverage limits, defects, repairs, blockers, context changes and model usage. No unsupported format or unresolved scenario is silently described as fully covered.
+## Next input and expectation milestone
 
-## Next milestone: input and expectation model
+1. Define versioned source records with raw/extracted hashes, extraction version and line/section citations.
+2. Normalize Swagger 2 and OpenAPI 3 without losing original pointers; handle missing operation IDs explicitly.
+3. Parse WSDL/XSD operations, messages, bindings and endpoints; generate SOAP envelopes, SOAPAction/content types, XML extraction and fault assertions.
+4. Preserve Gherkin scenarios, outlines and examples; extract PDF/DOCX requirements into the same provenance model as text.
+5. Support requirements-led expectation models. Missing endpoint, auth, request shape or expected behavior must become an explicit gap.
+6. Separate authoritative expectations from inferred hypotheses. Conflicting sources remain visible; observed defects cannot redefine the oracle.
 
-- Introduce source records containing format, raw hash, extracted-text hash, extraction version, and line/section citations. Binary-document citations refer to extracted content and retain a link to the original file.
-- Normalize OpenAPI 3 and Swagger 2 without losing original source pointers. Generate stable operation IDs when a supported input omits them; report conversion limits explicitly.
-- Parse WSDL/XSD into operations, messages, bindings and endpoints. Implement SOAP envelope generation, SOAPAction/content-type handling, XML response extraction and fault assertions, with a local SOAP fixture. A WSDL file extension alone is not support.
-- Preserve Gherkin scenarios, outlines and example tables as structured source context. Extract PDF/DOCX requirements into the same provenance model as Markdown/text.
-- Allow requirements-led projects to construct a cited operation/expectation model through AI analysis. Missing target, credentials, request shape or expected behavior becomes an explicit blocker; it must not be filled with invented certainty.
-- Separate authoritative contract/requirement facts from inferred test hypotheses. Conflicting sources remain visible and block affected completeness claims until resolved. Changing test implementation must not rewrite an authoritative expectation to match an observed defect.
+Each adapter needs extraction/normalization checks **and generated request execution** against a representative fixture. Required examples include a SOAP fault, Swagger 2 conversion, Gherkin outline and requirements-only endpoint.
 
-The acceptance fixture for each adapter must execute generated Playwright requests, not merely demonstrate successful parsing. SOAP faults, a Swagger 2 conversion, a Gherkin outline with examples, and a requirement-only endpoint are required cases.
+## Coverage and unattended-operation follow-up
 
-## Implementation tracking
+- Track declared responses, input partitions, authorization roles and state transitions separately from operation coverage.
+- Measure assertions with mutation or controlled fault injection in fixtures that explicitly support it.
+- Add state-graph exploration and isolated test-data provisioning with cleanup evidence.
+- Introduce bounded provider recovery/spend policies, selective affected-test regeneration and interruption recovery.
+- Preserve visible unresolved gaps; never lower a gate merely to obtain a passing report.
 
-- [x] Durable lifecycle and reporting (first implementation; crash recovery remains in milestone 5)
-- [ ] Input adapters
-- [ ] Semantic acceptance
-- [ ] Implementation and repair
-- [ ] Cross-revision reconciliation
-- [ ] Live acceptance campaign
+## Acceptance criteria for later milestones
 
-These are delivery milestones, not claims of current support. Each milestone must record its checks and remaining limitations before being marked complete.
-
-## First implementation evidence
-
-The one-shot command now persists context revisions, scenario/test links and successful plans, and emits consolidated Markdown/JSON reports. `run --watch` detects configured changes and reruns serially. Changes during execution invalidate acceptance. Identical context/config/framework revisions may reuse successful test implementations; changed revisions start fresh. Reports retain every attempt's findings. A new deterministic gate blocks confident AI scenarios without implementations.
-
-Regression coverage includes revision changes/new files, concurrent writer exclusion, stale-result invalidation, restart persistence, watch coalescing/error behavior, historical failure reporting, and unimplemented semantic scenarios despite passing execution. The existing scripted-provider integration executes real Playwright and checks repair/report evidence; it does not establish live-model reasoning quality.
-
-Remaining limits: content-derived identities do not reconcile paraphrased requirements; document adapters and WSDL/SOAP are not implemented; only current typed repair capabilities exist; source changes rebuild instead of selectively reconciling; crash locks require verified manual recovery. The report is an evidence synthesis, not yet a dedicated final analyst agent. Later milestones remain open.
-
-Live testing exposed two additional issues addressed in this milestone: the healer needed successful state-changing exchanges as well as failures, and the builder needed operation-checked links from existing tests to newly discovered scenarios to avoid duplicating requests under coverage pressure. The broader sample run repaired a reset-header test and reached 33 passing tests, but correctly remained blocked on scenario coverage. Its evidence is `.gauntlet/live-agentic-1789386128179/runs/20260914114208-90105-69e0ad/analysis.md`; it predates the new coverage-link support and is not a final passing acceptance result.
-
-Final milestone verification: **47 regression tests passed**, TypeScript checks passed, and the focused real `gpt-5.6-luna` maintenance check completed **three passing runs**: initial generation, reuse of the validated plan with fresh execution, and a watch-triggered run after a requirement changed. Evidence: `.gauntlet/maintenance-live-1789387249580/acceptance.json`. The script asserts context revision changes and plan-reuse eligibility. This is a small health API acceptance check; multi-format support, broad semantic completeness and the full acceptance campaign remain open.
-
-Additional live-driven improvements include complete-response captures (`$`), workflow-level scenario links, explicit confidence thresholds in agent inputs, stopping repeated rejected proposals, and routing passing execution with coverage gaps back to the builder. Earlier unsuccessful live attempts are retained as evidence; they were not replaced with scripted providers.
-
-## Coverage and isolation milestone
-
-Implemented a durable semantic obligation backlog, an independent live verifier with validated assertion references and fresh execution checks, source-change reconciliation to verified replacements, append-only assertion improvements, workflow cleanup in failure paths, and contract-validated per-test reset hooks. Budgets include reset and cleanup requests. The existing run/watch entry point is unchanged.
-
-Remaining scope: exhaustive discovery cannot be certified by model review; ambiguous requirement removals require resolution. Response-code/dimension coverage matrices, state-graph exploration, mutation testing, and additional WSDL/document adapters remain future work.
+A new business rule with no new endpoint must trigger discovery, implementation, execution and a revised report. Repairable test faults must show a verified repair; real product defects must remain red. Restart must retain identities, results and validated work. Each supported input format needs source-to-test provenance, and unsupported or unobservable requirements must remain explicit.

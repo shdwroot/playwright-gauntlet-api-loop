@@ -22,10 +22,11 @@ Usage:
   api-gauntlet run [--config path] [--watch] [--inject-stale-data]
   api-gauntlet report <run-id-or-directory> [--config path]
 
-Agentic mode: append --agentic --model <model-id> (or set OPENAI_MODEL). Requires OPENAI_API_KEY.
+Agentic mode: append --agentic --model <model-id> (or set OPENAI_MODEL). Requires the configured API key (OPENAI_API_KEY by default).
 Config agents.provider=openai also enables agentic mode, with separate role models.
 
-Exit codes: 0 passed, 1 failed, 2 blocked/stalled, 3 framework/config error.`);
+One-shot exit codes: 0 passed, 1 failed, 2 blocked/stalled, 3 framework/config error.
+Watch mode reports each run; use one-shot run for a CI exit code.`);
 }
 
 async function main(): Promise<void> {
@@ -42,7 +43,7 @@ async function main(): Promise<void> {
   if (['discover', 'generate', 'run', 'loop'].includes(command)) {
     const { config } = await loadConfig(configPath);
     console.error(config.agents.provider === 'openai'
-      ? `AGENTIC: live model calls enabled (discovery, lead, builder, critic, healer as needed). Model: ${config.agents.builderModel}`
+      ? `AGENTIC: live model calls enabled (discovery, lead, builder, verifier, critic, healer as needed). Model: ${config.agents.builderModel}`
       : 'OFFLINE: deterministic fixture mode; no LLM calls. Use --agentic --model <model-id> for autonomous agents.');
   }
   if (command === 'help' || command === '--help' || command === '-h') {

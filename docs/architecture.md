@@ -1,82 +1,68 @@
 # Architecture
 
-The framework runs a lead-managed discovery, implementation, execution and repair loop in OpenAI mode. The default project models are gpt-5.6-luna. The deterministic provider is an explicit offline fixture mode. See [agentic loop](agentic-loop.md) for the executable proposal format, limits and evidence. Discovery now has two inputs: the authoritative OpenAPI contract and optional untrusted local context.
+Live Gauntlet is a lead-managed testing loop with deterministic execution and acceptance boundaries. The baseline planner is deterministic; AI-authored additions and repairs can differ between runs. Offline mode uses the baseline and deterministic artifact repair without model calls.
 
 ```text
-DISCOVER → PLAN → GENERATE → EXECUTE → CRITIQUE
-                                     ↙        ↘
-                              PASS/PUBLISH     HEAL → EXECUTE
-                                                  ↘ DENY/BLOCK
+spec + configured context → discovery → persistent obligations
+                                  ↓
+                            lead / builder
+                                  ↓
+                       validated plan → renderer
+                                  ↓
+                   Playwright API execution + cleanup
+                                  ↓
+                       semantic/isolation verifier
+                                  ↓
+                     contract/evidence critic
+                                  ↓
+              accept/report | build gaps | heal failures | block
+                                  ↓
+              persist revision, backlog, history and eligible plan
+                                  ↓
+                         watch next context change
 ```
 
-```text
-configured logs/documents
-  → path + type + byte limits
-  → immutable source hashes
-  → redaction before persistence/agent access
-  → bounded deterministic extraction + LLM analysis of complete source text
-  → exact method/path OpenAPI mapping
-  → generate | merge | report-only | reject
-  → planner (OpenAPI remains the assertion oracle)
-```
+## Components and roles
 
-## Roles
+| Component | Responsibility |
+| --- | --- |
+| `src/discovery.ts` | Read bounded local text, redact context, extract deterministic signals and call semantic discovery |
+| `src/agents.ts` | Actual Responses API calls for discovery, lead, builder, verifier, critic and healer; role-specific models and structured output |
+| `src/agent-loop.ts` | Enforce lead actions, execution/request budgets, repetition stopping and gated acceptance |
+| `src/planner.ts` | Compile deterministic baseline cases from the normalized contract |
+| `src/agent-plan.ts` | Validate model-authored requests, links, assertions, setup, workflows and cleanup; preserve existing expectations |
+| `src/generator.ts` | Render the accepted plan into Playwright tests and hash its generated files |
+| `src/generated-runtime.ts`, `src/runner.ts` | Execute real HTTP with Playwright, capture exchanges, assert responses and run cleanup/reset hooks |
+| `src/coverage.ts` | Retain obligations, restrict verifier proofs to passing linked tests, validate executable assertion pointers, reconcile to verified replacements |
+| `src/critic.ts` | Contract, execution, integrity, coverage and traceability gates; additional model critique cannot waive failures |
+| `src/healer.ts` | Restore generated artifacts from the trusted accepted plan when their contents drift |
+| `src/maintenance.ts` | Locks, context fingerprints, watch scheduling, history and eligible successful-plan persistence |
+| `src/analysis-report.ts` | Consolidate every attempt, coverage, repairs, findings and model usage into Markdown/JSON |
 
-- **Lead agent** (`src/agents.ts`) chooses the next action and delegates concrete tasks using the plan, discoveries and evidence. `src/agent-loop.ts` enforces action validity, execution/request budgets, repetition detection and acceptance gates.
-- **Discovery router** (`src/discovery.ts`) enumerates configured local sources, rejects unsafe input, redacts secrets/PII, extracts scenario signals, maps them exactly to OpenAPI operations, and preserves every source disposition.
-- **Builder** (`src/agents.ts`) starts with baseline contract coverage and authors concrete requests and stateful workflows. `src/agent-plan.ts` validates these proposals and incorporates them into the executable plan. Rejected proposals and critic findings are fed back to the agent.
-- **Renderer** (`src/generator.ts`) is the only component that writes generated tests. The same accepted plan and renderer produce the same bytes; live model-authored plans can differ between runs.
-- **Executor** (`src/runner.ts`) runs the signed candidate with Playwright Test and `APIRequestContext`.
-- **Critic** (`src/critic.ts`) receives the immutable contract identity, anonymous candidate manifest, and raw execution summary. Hard gates override any model opinion or score.
-- **Healer agent** (`src/agents.ts`) diagnoses execution failures and revises generated request implementations or adds workflows. Existing cases and response expectations are preserved. `src/healer.ts` additionally repairs artifact drift from the accepted plan. Neither path edits the API application or contract.
-
-Discovery, lead, builder, critic and healer calls have separate role prompts and invocation identities. With `agents.provider: "openai"`, they can use different models. The deterministic provider keeps CI offline and repeatable.
+The executor, compiler, renderer and report writer are code components, not extra LLM agents. Separate prompts and invocation identities establish role separation; using the same model for all six roles does not make review mathematically independent.
 
 ## Trust boundaries
 
-The OpenAPI contract is the test oracle. Runtime responses, system logs, incident notes, and documents are observations, never a source for expected statuses or schemas. Source text is tainted data and is never executed as an agent instruction. An observed `500` where OpenAPI declares success is retained as a contract-violation finding; it never becomes an expected `500`. An undocumented endpoint is a contract gap, not a generated request.
+OpenAPI supplies operation identity, expected statuses and schemas. Supporting text and observed responses are untrusted data: they can motivate tests but cannot authorize new endpoints, rewrite a failed status or instruct the framework to reveal credentials. Scenario-specific assertions retain contract-context pointers and must distinguish inference from explicit requirements.
 
-Discovery reads local sources and, in OpenAI mode, sends bounded redacted text and contract context to the configured model. Offline discovery is deterministic and local-only. Every configured source is parsed or the run fails closed; no remote URLs, archives, binaries, non-UTF-8 text, symlinks, paths outside the config root, or files above configured limits are accepted. Source order does not control candidate order. Deterministic duplicates merge citations. LLM proposals retain their rationale, source citations, and model invocation.
+Redaction is applied before model inputs and persisted discovery excerpts. Exchange attachments redact credential-like fields. Redaction is pattern-based, not a guarantee that every custom sensitive field is removed; inspect artifacts before sharing them. Model invocation evidence can include bounded redacted document text, while discovery reports retain source hashes, lines and excerpts.
 
-Redaction occurs before excerpts reach plan artifacts or optional model agents. Bearer tokens, credential headers/fields, sensitive query parameters, emails, and customer-like identifiers are replaced with typed placeholders. Generated request values remain synthetic and schema-derived; observed identifiers and payloads are not replayed.
+Target host/method restrictions, non-loopback opt-in and destructive-operation policy apply independently of model decisions. Configured credential values are loaded by the worker from environment variables. Models author a typed plan and cannot execute arbitrary JavaScript, shell commands or application-source repairs.
 
-Credentials are named in configuration but loaded from environment variables inside the Playwright worker. Request and response attachments recursively redact credential-like fields and token-like values.
+A verifier may block semantic or isolation gaps. Its proof choices are schema-constrained to linked passing tests and executable assertions, then checked again by code. Generic new critic concerns remain warnings unless corroborated by an existing blocking code. Neither role can override execution or contract gates.
 
-Non-loopback targets are denied unless `safety.allowProduction` is explicitly enabled and the host is allowlisted. Mutating methods require both a method allowlist entry and `allowDestructive: true`.
+## State and persistence
 
-## Generated artifacts
+A revision combines spec/source/config content, effective configuration and compiled framework module hashes. A successful plan is reusable only for the same revision, and even then discovery and execution run again. Changed revisions regenerate tests; semantic obligations persist and can be explicitly reconciled to freshly verified replacements. Unresolved removals stay visible.
 
-`.gauntlet/generated/manifest.json` signs the OpenAPI hash, plan hash, renderer version, seed, and generated file hashes. Each run stores:
+Locks serialize writers to a generated directory. Watch mode coalesces changes and schedules a new run after the active one completes; mid-run context drift invalidates acceptance. It does not schedule periodic target-only checks, automatically retry unchanged failures, reload existing `.env` values, or recover stale locks after crashes.
 
-```text
-.gauntlet/runs/<run-id>/
-  run-manifest.json
-  events.json
-  discovery/report.json
-  plan.json
-  agents/builder.json
-  attempts/<n>/
-    execution.json
-    playwright-report.json
-    junit.xml
-    html/
-    stdout.log
-    stderr.log
-    critic.json
-    heal.json
-    test-results/       # traces and sanitized exchange attachments
-  heal-<n>.diff
-  result.json
-```
+Persistent state is under `<artifactsDir>/.maintenance/<generated-directory-hash>/`. Run-specific evidence remains under `<artifactsDir>/<run-id>/`. See the canonical [evidence layout](../training/reference.md#evidence-layout).
 
-Terminal states are `PASSED`, `FAILED`, `BLOCKED`, or `STALLED`. A high score cannot override a hard finding, zero executed tests, skips, missing evidence, or artifact drift.
+Manifest hashes detect generated-file drift; they are not cryptographic signatures from an external signing authority. Reports preserve earlier failures even after a successful repair. A high score cannot excuse zero tests, skipped tests, unverified obligations or changed context.
 
-The discovery hash signs source hashes, parser version, redacted evidence, mapping decisions, and dispositions. The critic re-hashes the report, rechecks source bytes before accepting a run, verifies every executable discovery candidate has a citation and exact operation mapping, and requires every assertion to carry OpenAPI oracle provenance. A changed or missing source stops acceptance instead of silently using stale context.
+## Execution isolation
 
-## Learn this architecture by running it
+Standalone tests continue after another standalone failure; main steps within a workflow stop at the first failure. Agent-authored cleanup still runs afterward, attempting later cleanup steps even if one fails. Available response captures are collected before assertions so a successfully created resource can be cleaned up after an assertion fails. Missing captures or cleanup failures remain errors.
 
-- [Crash course](../training/README.md): the contract-to-evidence mental model
-- [First manual run](../training/walkthroughs/01-first-run.md): each state transition and artifact in practice
-- [Evidence and healing walkthrough](../training/walkthroughs/02-evidence-and-healing.md): why generated drift can heal while a real API defect remains red
-- [Framework reference](../training/reference.md): exact generation, score, status, and artifact rules
-- [Context discovery walkthrough](../training/walkthroughs/04-context-discovery.md): add logs/documents and audit every decision
+Configured reset hooks run before and after each independent unit and consume the request budget. Serial execution alone is not isolation. See the [configuration guide](configuration.md#optional-test-environment-reset) for the sample-specific reset and its limits.

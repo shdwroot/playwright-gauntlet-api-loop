@@ -1,69 +1,86 @@
 # Configuration
 
-`gauntlet.config.json` is validated before generation or network access.
+Select a project with `--config path/to/gauntlet.config.json`. Paths and automatic `.env` loading are relative to that configuration's directory. The complete field/default tables are in the [framework reference](../training/reference.md#configuration).
 
-| Field | Purpose |
-|---|---|
-| `spec` | Local OpenAPI 3.x JSON or YAML file. Remote `$ref` values fail closed. |
-| `baseUrl` | Runtime target. Its hostname must appear in `safety.allowedHosts`. |
-| `generatedDir` | Framework-owned output; the healer cannot write elsewhere. |
-| `artifactsDir` | Immutable run evidence and reports. |
-| `seed` | Reproducible data-generation seed. |
-| `maxIterations` | Hard loop budget. Pass, block, unsafe repair, or repetition stops earlier. |
-| `headersFromEnv` | Maps HTTP header names to environment-variable names, never values. |
-| `discovery` | Optional bounded local log/document sources used only to find OpenAPI-corroborated scenarios. |
-| `safety.allowedMethods` | Methods the planner may generate. |
-| `safety.allowDestructive` | Required for `POST`, `PUT`, `PATCH`, or `DELETE`. |
-| `safety.allowProduction` | Required in addition to host allowlisting for non-loopback targets. |
-| `safety.maxRequestsPerRun` | Planning fails before execution if the request budget would be exceeded. |
-| `agents.provider` | `deterministic` for offline CI or `openai` for separate live model calls. |
-| `quality.minimumScore` | Numeric floor; all hard gates must also pass. |
+## Endpoint and environment
 
-The default root config uses `openai` and `gpt-5.6-luna` for all five roles. `.env` beside the config is loaded automatically without overriding exported values. `gauntlet.offline.config.json` preserves the deterministic fixture configuration. See [the agentic loop guide](agentic-loop.md).
+`baseUrl` selects the API under test. A nonblank `GAUNTLET_BASE_URL` overrides it; blank or unset falls back to config. The resulting hostname must be in `safety.allowedHosts`; non-loopback targets also require `allowProduction: true`. Mutating methods require both the method allowlist and `allowDestructive: true`.
 
-For OpenAI mode, set `agents.provider` to `openai`, choose separate `builderModel` and `criticModel`, and export the environment variable named by `agents.apiKeyEnv` (default `OPENAI_API_KEY`). The key is not persisted or sent in critic evidence.
+```dotenv
+# In the untracked .env beside the chosen config:
+GAUNTLET_BASE_URL=http://127.0.0.1:8080
+# Add OPENAI_API_KEY and your target credentials privately.
+```
 
-Operation-level `security` produces an unauthenticated negative case when a `401` response is declared. Local schema examples, enums, formats, required properties, and numeric/string boundaries drive deterministic data. `x-gauntlet-conflict-value` can name a known duplicate fixture value for a declared `409` case.
+Exported environment variables take precedence over `.env`. Only the selected config's adjacent `.env` is loaded, not every parent directory. Existing environment values also persist in a running watcher: restart it after changing credentials or `.env` target/model values; `.env` is not a watched source.
 
-Root `x-gauntlet-workflows` entries can capture a response field with `$response.body#/id` and reuse it in later path parameters with `${steps.<step-id>.<capture-name>}`.
+`headersFromEnv` maps header names to environment-variable names, for example `{"authorization":"MY_API_AUTHORIZATION"}`. Store the full bearer value privately in that variable. Do not place credential values in JSON config or context documents.
 
-## Additional-source discovery
+## Models and modes
+
+The root config uses six live Luna roles. `gauntlet.offline.config.json` and the inventory training config are deterministic. With live mode, discovery analyzes the contract even if supplemental discovery sources are disabled.
+
+| Setting | Effect |
+| --- | --- |
+| `agents.provider` | `openai` for actual model calls; `deterministic` for offline fixtures |
+| `builderModel`, `criticModel` | Required role model names |
+| `discoveryModel`, `leadModel`, `healerModel` | Default to builder model |
+| `verifierModel` | Defaults to critic model |
+| `agents.timeoutMs` | Per-model-call timeout, default 120000 ms |
+| `agents.apiKeyEnv` | Credential variable name, default `OPENAI_API_KEY` |
+| `agents.openaiBaseUrl` | Model provider endpoint; separate from the target API's `baseUrl` |
+
+`--agentic --model MODEL_ID` selects live mode and overrides all role models for that invocation. `OPENAI_MODEL` supplies the model only when `--agentic` is used without `--model`. `GAUNTLET_AGENT_PROVIDER` and `GAUNTLET_AGENT_MODEL` directly override provider/model configuration; clear them when switching to offline exercises. There is no silent fallback from a failed model call to a scripted agent.
+
+## Supporting context
 
 ```json
 {
   "discovery": {
     "enabled": true,
     "required": true,
-    "sources": [
-      { "id": "service-events", "path": "context/system.log", "kind": "log" },
-      { "id": "api-notes", "path": "context/scenarios.md", "kind": "document" }
-    ],
-    "allowedExtensions": [".json", ".jsonl", ".log", ".md", ".txt", ".yaml", ".yml"],
-    "maxFiles": 100,
-    "maxFileBytes": 5242880,
-    "maxTotalBytes": 26214400,
-    "maxCandidates": 5000,
-    "maxCandidatesPerOperation": 20,
-    "maxExcerptCharacters": 512,
+    "sources": [{ "id": "project-context", "path": "context", "kind": "auto" }],
+    "maxAgentInputCharacters": 200000,
     "minimumConfidence": 0.85
   }
 }
 ```
 
-Source paths are relative to the config file. A source may be a regular file or a directory; directory traversal is stable and excludes `.git`, `.gauntlet`, and `node_modules`. Symlinks and paths outside the config root fail closed. `kind` may be `log`, `document`, or `auto`. `required: true` makes an empty or missing corpus an error. Every byte/count limit is enforced before candidates enter the plan.
+Create the configured directory and add UTF-8 context before running. Sources may be files or directories; supported kinds are `auto`, `log` and `document`. Directory sources include newly added files. Paths must remain under the config root; symlinks, binaries, unsupported extensions and size/count overflow fail closed. Keep generated artifacts and secrets out of discovery inputs.
 
-Supported v1 sources are UTF-8 text. PDF, DOCX, archives, remote URLs, devices, sockets, and binary or malformed encodings are deliberately rejected; extract them into reviewed text first. Do not configure generated or run directories as inputs.
+Default extensions are `.json`, `.jsonl`, `.log`, `.md`, `.txt`, `.yaml`, `.yml`. PDF/DOCX extraction, WSDL/SOAP, Swagger 2 conversion and structured Gherkin are not implemented. A text export can provide context alongside the mandatory OpenAPI 3 contract; it does not become an authoritative replacement contract.
 
-Use method, path, status, and a concise symptom to maximize mapping accuracy, for example:
+Live discovery analyzes prose and observable API semantics. Deterministic extraction supports narrower method/path/status recipes; see the [offline discovery exercise](../training/walkthroughs/04-context-discovery.md). Observed statuses cannot replace declared expectations.
 
-```text
-method=POST path=/users status=400 error="malformed JSON"
-GET /users?limit=0 returned 400 query minimum boundary
-POST /users with whitespace-only name should return 422
+## Coverage and budgets
+
+- `quality.minimumOperationCoverage` defaults to `1`; it measures operations, not all business behavior.
+- `quality.minimumScenarioCoverage` defaults to `1` for live mode and `0` for deterministic mode; it checks eligible AI scenario implementation links.
+- `quality.requireSemanticVerification` and `quality.requireIsolationReview` default to true in live mode. The verifier must reference actual assertions from linked tests that passed, and review each independent test's isolation. Disabling a gate reduces assurance.
+- `quality.minimumScore` defaults to `95`; no score overrides a blocking finding.
+- `maxIterations` bounds executions. In live mode, `safety.maxRequestsPerRun` is cumulative across reruns and includes main steps, workflow cleanup and per-test reset hooks. The loader default is 100; the bundled live sample sets 400 to accommodate reset requests.
+
+See [the agentic guide](agentic-loop.md) for retained obligations, semantic reconciliation, watch behavior and stopping conditions.
+
+## Optional test-environment reset
+
+For live mode and a disposable target with a declared reset endpoint:
+
+```json
+{
+  "isolation": {
+    "operationId": "resetFixture",
+    "request": { "headers": { "x-gauntlet-reset": "allowed" } }
+  }
+}
 ```
 
-Observed values are never test oracles. A candidate is executable only when the method/path has one exact OpenAPI match, the status is declared, policy permits the operation, and the input can be synthesized from the contract. See the [discovery walkthrough](../training/walkthroughs/04-context-discovery.md).
+This is the bundled sample's operation and guard header, not a universal API setting. The compiler validates the operation, success response, request and safety policy, then runs reset before and after every standalone test or workflow. Configured reset hooks cannot reference workflow variables. Omit this setting for targets without that capability; agents must establish independent state through supported setup/cleanup instead.
 
-For a complete field-by-field table, see the [framework reference](../training/reference.md#configuration). To build a bounded config for another service, follow [How to test your own API](../training/walkthroughs/03-bring-your-own-api.md).
+Agent-authored `cleanupSteps` run in `finally`. Cleanup failures remain visible alongside the original error. A stopped process or unreachable target can prevent cleanup; the framework cannot guarantee removal in those conditions.
 
-Agent role overrides: `agents.discoveryModel`, `agents.leadModel`, and `agents.healerModel` default to `builderModel`. `agents.timeoutMs` defaults to 120000. `discovery.maxAgentInputCharacters` defaults to 200000. Agentic runs enforce `safety.maxRequestsPerRun` cumulatively across reruns.
+## Contract conventions
+
+Declared security plus `401` enables missing-credential cases. Examples, enums, required properties and boundaries drive the baseline planner. `x-gauntlet-conflict-value` supplies a known fixture duplicate for `409` tests.
+
+OpenAPI `x-gauntlet-workflows` uses `$response.body#/id` captures and `${steps.create.itemId}` references. Agent proposals use `capture: {itemId: "$.id"}` and `${itemId}`. These are different input syntaxes; the loader/compiler normalizes them to runtime captures. The OpenAPI extension currently has main `steps` only: deleting in a final main step does not provide failure-path cleanup. See [agent-authored cleanup](agentic-loop.md#cleanup-and-isolation).

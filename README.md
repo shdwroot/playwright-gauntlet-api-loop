@@ -1,163 +1,94 @@
 # Playwright API Gauntlet Loop
 
-The default configuration runs autonomous agents using **gpt-5.6-luna**. Discovery analyzes source text, the lead delegates work, the builder implements tests and workflows, and the healer revises failed test implementations using execution evidence. See the [agentic loop guide](docs/agentic-loop.md).
+Gauntlet runs a maintained API testing loop: AI discovers scenarios from an OpenAPI contract and supporting text, authors typed Playwright API tests, runs them, reviews their assertions and isolation, repairs test implementation faults, and writes an analysis report. The default configuration uses **gpt-5.6-luna** for six roles: discovery, lead, builder, verifier, critic and healer.
 
-```bash
-# OPENAI_API_KEY is loaded from the project's untracked .env
-npm run gauntlet -- discover
-npm run gauntlet -- run    # start the configured target API first
-npm run gauntlet -- run --watch    # run now, then rerun when configured context changes
-```
+OpenAPI statuses and schemas remain authoritative. Real API defects stay red. A passing run certifies the configured gates and executed scenarios, not exhaustive API coverage.
 
-Each full run prints a linkable path to `analysis.md` and saves context revisions, scenario/test links, all attempts and repair evidence. Successful plans can seed subsequent runs when context and framework hashes match; every run still executes and critiques the tests again. Confident AI scenarios without implementations block acceptance by default. See the [implementation plan](docs/implementation-plan.md) for the remaining multi-format ingestion and maintenance work.
+## Start the live agent loop
 
-The default configuration watches the `context/` directory: adding or editing a supported text source there triggers a new watched run. WSDL, PDF/DOCX, and structured feature-file ingestion remain planned adapters.
-
-`npm run demo` and `gauntlet.offline.config.json` retain the repeatable offline fixture path. Offline discovery is explicitly labeled and makes no LLM calls.
-
-
-An executable TypeScript framework that turns an OpenAPI contract into data and Playwright API tests, runs them, critiques real evidence, and repairs generated test implementations until every hard gate passes or the run fails closed.
-
-This is not a retry wrapper and it does not learn expectations from observed responses. Playwright's `APIRequestContext` is the execution authority; the OpenAPI contract remains the oracle.
-
-## What works
-
-- OpenAPI 3.0/3.1 YAML or JSON ingestion with local `$ref` resolution and duplicate-operation detection.
-- LLM semantic discovery plus bounded deterministic extraction from UTF-8 logs, JSON/JSONL, Markdown, text, and YAML documents, with exact OpenAPI corroboration and line-level provenance.
-- Stable positive, validation, boundary, authorization, not-found, conflict, and multi-step workflow cases.
-- Repeatable rendering from the accepted test plan; live agents author and revise the plan.
-- Separate lead, builder, executor, critic, and healer roles.
-- Five live agent roles by default: discovery, lead, builder, critic, and healer; explicit deterministic mode for offline fixtures.
-- JSON, JUnit, HTML, trace, request/response, event-ledger, manifest, critic, and healing evidence.
-- Secret redaction, host/method/request budgets, destructive-operation policy, iteration limits, and repetition stopping.
-- Explicit discovery dispositions (`generate`, `merge`, `report-only`, `reject`) so low-confidence, conflicting, undocumented, or unsafe evidence remains visible without becoming a test.
-- Self-healing restricted to generated artifacts. Real API failures are reported and left red.
-
-## Quick start
-
-Requirements: Node.js 20.12 or newer.
+Requires Node.js **20.12+**, an OpenAPI 3.x contract, a running target and a model API key. From the repository root:
 
 ```bash
 npm ci
+# If .env does not exist, copy .env.example to .env and add OPENAI_API_KEY.
 npm run gauntlet -- doctor
-npm run demo
 ```
 
-`npm run demo` starts the loopback sample API, injects stale generated request data, proves the critic rejects it, restores only the generated plan, reruns all regression tests, and exits only after a clean critic verdict.
-
-## Training course
-
-New to the framework? Start with the [20-minute crash course](training/README.md), then work through the four runnable walkthroughs:
-
-For a source-derived, OpenAI-assisted example with stateful workflows and a
-controlled self-healing demonstration, see the
-[Witness OpenAPI Gauntlet](examples/the-witness/README.md).
-
-1. [Run the inventory gauntlet by hand](training/walkthroughs/01-first-run.md)
-2. [Distinguish generated drift from a real API defect](training/walkthroughs/02-evidence-and-healing.md)
-3. [Test your own API](training/walkthroughs/03-bring-your-own-api.md)
-4. [Discover scenarios from logs and documents](training/walkthroughs/04-context-discovery.md)
-
-The course includes a separate five-operation [inventory API](training/example-project/inventory-api.mjs), its [OpenAPI contract](training/example-project/openapi.yaml), a safe loopback [configuration](training/example-project/gauntlet.config.json), and an automated regression test. Run the complete example with:
+For the bundled sample, start its disposable API in another terminal:
 
 ```bash
-npm run course:example
+node --env-file=.env fixtures/sample-api.mjs
 ```
 
-Keep the [framework reference](training/reference.md) open while adapting the example.
-
-For the normal sample run without fault injection:
+Then use one command:
 
 ```bash
-npm run fixture
-```
-
-In another terminal:
-
-```bash
-export SAMPLE_API_KEY=gauntlet-local-key
-npm run gauntlet -- run
-```
-
-The final console output points to `.gauntlet/runs/<run-id>`. Open `attempts/<n>/html/index.html` for the Playwright report or use:
-
-```bash
-npm run gauntlet -- report <run-id>
-```
-
-## Bring your own API
-
-1. Put an OpenAPI 3.x file in the repository.
-2. Copy and edit `gauntlet.config.json`.
-3. Keep secrets in environment variables and map only their names in `headersFromEnv`.
-4. Allowlist the exact host and methods. Leave production and destructive access disabled unless deliberately required.
-5. Run `npm run gauntlet -- generate`, review the signed plan, then run `npm run gauntlet -- run`.
-
-To add operational context, configure local sources under `discovery.sources` and run discovery first (reads local sources and calls the model; does not execute target requests):
-
-```bash
-npm run gauntlet -- discover
-```
-
-The report records source hashes, redacted excerpts, exact lines, OpenAPI pointers, confidence, and dispositions. Logs and documents are untrusted hints: they may select a contract-backed case, but cannot invent an endpoint or replace an OpenAPI expected status. Review `report-only` contract gaps and conflicts separately.
-
-The CLI returns `0` only for a hard-gate pass, `1` for a test/framework failure, `2` for blocked or stalled, and `3` for configuration/runtime errors.
-
-## Safe healing policy
-
-In agentic mode, the healer diagnoses failures and revises generated test inputs or adds workflows, then reruns the suite. Existing expectations remain fixed. Artifact-integrity repair can also restore generated files from the current accepted plan. It records before/after hashes and a diff, then executes the full suite again.
-
-It will not:
-
-- replace expected statuses or schemas with observed responses;
-- remove assertions, add skips, hide errors, or increase retries/timeouts;
-- edit the API contract, application, configuration, or human-authored tests;
-- broaden hosts, methods, credentials, or destructive access;
-- classify a target outage as a test fix.
-
-When the signed candidate already matches the contract, a failing API remains a failing API and the repair is denied.
-
-## Development
-
-```bash
-npm run build
-npm run typecheck
-npm run test:unit
-npm run test:integration
-npm test
-```
-
-The required test path is offline except for loopback HTTP. `APIRequestContext` does not require installing a browser binary.
-
-See the [training course](training/README.md), [framework reference](training/reference.md), [architecture](docs/architecture.md), [configuration](docs/configuration.md), and [attribution](NOTICE.md).
-
-Design references: [Playwright API testing](https://playwright.dev/docs/api-testing), [Anthropic's evaluator-optimizer and orchestrator-worker patterns](https://www.anthropic.com/engineering/building-effective-agents), and [RoboNuggets' Gauntlet Loop skill](https://github.com/robonuggets/gauntlet-loop).
-
-### Persistent coverage and isolation
-
-The same command runs discovery, implementation, Playwright, semantic verification, critique, and bounded repair:
-
-```sh
 npm run gauntlet -- run --watch
 ```
 
-Each live run retains its `coverage-backlog.json`, including failed runs. Rediscovery cannot silently discard prior obligations. A separate Luna verifier reviews actual assertions and preconditions; the framework checks that cited assertion pointers exist, tests are linked to the scenario, and those tests passed in this execution. The analysis report distinguishes these reviewed obligations from simple implementation links. This is evidence-backed model review, not a guarantee of exhaustive coverage.
+This runs now and reruns when configured context changes. Omit `--watch` for one run. The sample watches `context/`, resets fixture state before and after each independent test, and allows up to 400 API requests across execution attempts, including cleanup and reset hooks.
 
-Changed context invalidates prior verification. The verifier can reconcile old obligations to freshly verified replacements, preserving the mapping and reason. Ambiguous removals or missing business oracles remain visible blockers. The watcher reruns on context changes; it does not repeatedly spend calls on an unchanged blocked revision.
+For your API, follow [the setup walkthrough](training/walkthroughs/03-bring-your-own-api.md). Set `baseUrl` in your config or `GAUNTLET_BASE_URL` in the `.env` beside it. Configure the matching host/method policy; use reset hooks only for a declared reset operation in your own test environment. Exported values take precedence over `.env`.
 
-Agent-authored workflows support `cleanupSteps`, executed after failures as well as success. Response captures are collected before assertions, allowing cleanup after a successful create with an incorrect response. Cleanup errors remain failures alongside the original error. Agents can append assertions using `assertionAdditions`; existing expectations cannot be removed or weakened.
+## What is supported
 
-For disposable test environments with a declared reset operation, configure:
+| Capability | Current support |
+| --- | --- |
+| API contracts | OpenAPI 3.x YAML/JSON with local references and explicit operation IDs |
+| Supporting context | Bounded local UTF-8 logs, JSON/JSONL, Markdown, text and YAML; live semantic analysis plus deterministic extraction |
+| Test implementation | Contract-derived baseline plus AI-authored requests, response assertions, workflows and captures |
+| Maintenance | Context watching, serialized runs, validated-plan reuse, durable semantic obligations and reviewed replacement mappings |
+| Acceptance | Execution, integrity, operation/scenario linkage, semantic proof references and isolation gates |
+| Repair | Request changes, inserted setup, added tests/workflows and assertions; workflow cleanup runs after failures |
+| Reports | Consolidated Markdown/JSON, context changes, coverage backlog, attempts, repairs, model usage and Playwright evidence |
+| Not yet supported | Swagger 2 conversion, WSDL/SOAP, PDF/DOCX extraction, structured Gherkin, requirements-only execution, arbitrary code/capture/order repairs |
 
-```json
-{
-  "isolation": {
-    "operationId": "resetFixture",
-    "request": { "headers": { "x-gauntlet-reset": "allowed" } }
-  }
-}
+Adding an extension to an allowlist does not implement a format adapter. See [the current objective audit](docs/agentic-objectives-audit.md) and [remaining work](docs/implementation-plan.md).
+
+## Commands and evidence
+
+```bash
+npm run gauntlet -- discover          # model analysis; no target requests
+npm run gauntlet -- generate          # model-authored plan; no target requests
+npm run gauntlet -- run               # complete one-shot loop
+npm run gauntlet -- run --watch       # complete loop plus context monitoring
+npm run gauntlet -- report <run-id>   # saved result.json
 ```
 
-This example is specific to the bundled sample API. Reset runs before and after each independent test or workflow. The operation must exist in the contract and satisfy the target's method/destructive policy. The sample's 400-request limit includes these hooks and cleanup; configure an appropriate bound for your own target. Without reset, the verifier checks setup and cleanup for independence from earlier tests. Cleanup cannot be guaranteed after process termination or loss of target connectivity.
+All commands accept `--config path/to/gauntlet.config.json`. Discovery is the `discover` subcommand, not `--discover`. A live generation is a separate model invocation; a later run generates again and can produce a different plan.
 
-`agents.verifierModel` defaults to the critic model. `quality.requireSemanticVerification` and `quality.requireIsolationReview` default to true for live agents. Offline mode remains a separate deterministic workflow.
+Each run prints the path to `analysis.md`. Its directory also contains `analysis.json`, `context.json`, `scenario-ledger.json`, and, for live runs, `coverage-backlog.json`. The [agentic guide](docs/agentic-loop.md#evidence) explains the detailed artifacts.
+
+Watch mode prints each run's status and keeps monitoring; its process exit is not a per-run CI verdict. Use one-shot `run` for exit codes: `0` passed, `1` failed, `2` blocked/stalled, `3` setup/runtime error.
+
+## Offline training and validation
+
+These commands use deterministic fixtures or scripted model test servers, with real loopback HTTP and no paid model calls:
+
+```bash
+npm run demo
+npm run course:example
+npm test
+npm run typecheck
+```
+
+For deterministic discovery, explicitly select `gauntlet.offline.config.json`. The root configuration is live. Clear exported `GAUNTLET_AGENT_PROVIDER`, `GAUNTLET_AGENT_MODEL`, and `GAUNTLET_BASE_URL` overrides before offline exercises so they use their intended configuration. Playwright API testing requires no browser binary.
+
+Optional checks using actual model calls and disposable local APIs:
+
+```bash
+npm run maintenance:verify   # health API: initial run, reuse, changed requirement
+npm run agentic:verify      # broader sample API; may expose unresolved coverage gaps
+```
+
+See [validation scope and recorded evidence](docs/validation.md). These checks do not test production services.
+
+## Documentation
+
+- [Documentation map](docs/README.md)
+- [Live agent loop and repair boundaries](docs/agentic-loop.md)
+- [Configuration and target setup](docs/configuration.md)
+- [Architecture](docs/architecture.md)
+- [Offline crash course](training/README.md) and [command/configuration reference](training/reference.md)
+- [The Witness example](examples/the-witness/README.md) and its separately gated [production walkthrough](training/walkthroughs/05-the-witness-live-production.md)
+- [Attribution](NOTICE.md)

@@ -33,7 +33,7 @@ Avoid vague prose such as “users sometimes fail.” It cannot identify an oper
 
 ## Step 2: Inspect the discovery budget
 
-The root [`../../gauntlet.config.json`](../../gauntlet.config.json) enables two sources and sets file, byte, candidate, per-operation, excerpt, and confidence limits. Paths are resolved relative to that config. Every source must remain inside the same project root.
+The offline [`../../gauntlet.offline.config.json`](../../gauntlet.offline.config.json) enables two sources and sets file, byte, candidate, per-operation, excerpt, and confidence limits. Paths are resolved relative to that config. Every source must remain inside the same project root.
 
 The sample sets `required: true`, so deleting or renaming a source fails rather than silently reducing coverage. In a gradual rollout, use `required: false`; an empty corpus then produces an explicit warning and a contract-only plan.
 

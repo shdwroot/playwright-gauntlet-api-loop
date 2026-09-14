@@ -1,14 +1,16 @@
-# Playwright API Gauntlet crash course
+# Offline Playwright API Gauntlet crash course
 
 In about 20 minutes, you will run a complete contract-to-evidence loop, inspect the generated cases, see a safe self-heal, and learn how to point the framework at another API. The included inventory project is loopback-only and uses no paid model or browser.
 
 ## What you need
 
-- Node.js 20 or newer
+- Node.js 20.12 or newer
 - Dependencies installed with `npm ci`
 - Two terminal windows for the manual walkthroughs
 
-Run all commands from the repository root.
+Run all commands from the repository root. This course uses deterministic configurations; the root configuration runs six real Luna roles. Start with the [live agent guide](../docs/agentic-loop.md) for AI discovery, authoring, semantic verification and test repair.
+
+Before offline exercises, clear exported model/target overrides in that terminal: `unset GAUNTLET_AGENT_PROVIDER GAUNTLET_AGENT_MODEL GAUNTLET_BASE_URL`. Ensure any selected `.env` also leaves those overrides unset. A fixed seed stabilizes the offline baseline, not live model decisions.
 
 ## Step 1: Get a passing result
 
@@ -30,7 +32,7 @@ This builds the framework, starts the training inventory API on `127.0.0.1:4020`
 
 You have already exercised five API operations, 12 standalone cases, and one three-request workflow.
 
-## Step 2: Learn the five-part mental model
+## Step 2: Learn the offline fixture model
 
 ```text
 OpenAPI contract ───────────────┐
@@ -111,7 +113,7 @@ npm run gauntlet -- doctor --config training/example-project/gauntlet.config.jso
 npm run gauntlet -- generate --config training/example-project/gauntlet.config.json
 
 # Inspect additional-source decisions without calling the target
-npm run gauntlet -- discover
+npm run gauntlet -- discover --config gauntlet.offline.config.json
 
 # Run the self-contained training project
 npm run course:example
@@ -125,4 +127,4 @@ npm test
 
 ## What to learn next
 
-After the three walkthroughs, use the [framework reference](reference.md) as your command and configuration lookup. Read [architecture](../docs/architecture.md) when you need to understand why the builder, critic, and healer have separate authority.
+After the five walkthroughs, use the [framework reference](reference.md) as your command and configuration lookup. Read [architecture](../docs/architecture.md) when you need to understand why the builder, critic, and healer have separate authority.

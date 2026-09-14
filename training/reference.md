@@ -4,7 +4,7 @@ Use this page when you know what you want to do and need the exact command, sett
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 20.12 or newer
 - An OpenAPI 3.x document in JSON or YAML
 - A reachable HTTP or HTTPS API
 - Environment variables for any configured credentials
@@ -22,12 +22,14 @@ npm run gauntlet -- <command> [options]
 | Command | Options | Result |
 |---|---|---|
 | `doctor` | `--config <path>` | Validates configuration and contract loading, then reports the target, contract hash, operation count, and workflow count. It does not call the target API. |
-| `discover` | `--config <path>` | Reads only configured local context, then prints a redacted, deterministic candidate report. It does not call the target API. |
-| `generate` | `--config <path>` | Compiles the contract-derived plan and writes the generated plan, Playwright test, and signed manifest. |
-| `run` | `--config <path>`, `--inject-stale-data` | Generates, executes, critiques, and, when policy permits, heals and reruns the suite. `loop` is an accepted alias for `run`. |
+| `discover` | `--config <path>` | Analyzes the contract and configured local context; live mode calls the model, offline mode uses deterministic extraction. It does not call the target API. |
+| `generate` | `--config <path>` | Builds a contract baseline, adds live agent proposals when enabled, and writes the generated plan, Playwright test, and hash manifest. |
+| `run` | `--config <path>`, `--watch`, `--inject-stale-data` | Generates, executes, critiques, and, when policy permits, heals and reruns the suite. `loop` is an accepted alias for `run`. |
 | `report` | `<run-id-or-directory>`, `--config <path>` | Prints the saved `result.json`. A bare run ID is resolved beneath the configured `artifactsDir`. |
 
-The default config path is `gauntlet.config.json` in the current directory.
+The default config path is `gauntlet.config.json` in the current directory; it uses live Luna agents. `discover` is a subcommand, not `--discover`. Append `--agentic --model MODEL_ID` to override all role models and enable live mode. `OPENAI_MODEL` is the fallback only with `--agentic`.
+
+Watch mode reports each run and continues monitoring. Use one-shot `run` for a CI exit code: stopping the watcher does not summarize prior run failures. `--inject-stale-data` applies to one-shot runs, not watch runs.
 
 ### Exit codes
 
@@ -35,12 +37,12 @@ The default config path is `gauntlet.config.json` in the current directory.
 |---:|---|
 | `0` | The command completed; for `run`, every hard gate passed. |
 | `1` | The API or framework failed a run. |
-| `2` | The run was blocked by infrastructure or stopped after repeating the same candidate and failure fingerprint. |
-| `3` | The CLI, configuration, contract, credential, or runtime setup is invalid. |
+| `2` | The run ended BLOCKED or STALLED; inspect findings for provider, oracle, policy, budget, context or repetition details. |
+| `3` | An uncaught CLI/configuration/contract/runtime error occurred. Errors recorded inside the live loop may instead return BLOCKED (2). |
 
 ## Configuration
 
-Paths are resolved relative to the directory containing the selected config file.
+Paths and automatic `.env` loading are relative to the selected config directory. Exported values win. Nonblank `GAUNTLET_BASE_URL` overrides `baseUrl`; `GAUNTLET_AGENT_PROVIDER` and `GAUNTLET_AGENT_MODEL` override provider and all role models. Restart watch after environment changes; `.env` is not monitored. See [configuration](../docs/configuration.md).
 
 ### Top-level fields
 
@@ -48,14 +50,15 @@ Paths are resolved relative to the directory containing the selected config file
 |---|---:|---:|---|
 | `projectName` | Yes | None | Non-empty name written into plans and run evidence. |
 | `spec` | Yes | None | Local OpenAPI file. It must stay within the config directory. |
-| `baseUrl` | Yes | None | HTTP(S) target. Its hostname must be allowlisted. |
+| `baseUrl` | Unless overridden | None | HTTP(S) target, overridden by nonblank `GAUNTLET_BASE_URL`. Its hostname must be allowlisted. |
 | `generatedDir` | Yes | None | Framework-owned plan, test, and manifest directory. It must stay within the config directory. |
 | `artifactsDir` | Yes | None | Run evidence directory. It must stay within the config directory. |
 | `seed` | No | `42` | Finite number used for repeatable generated data and stable case IDs. |
 | `maxIterations` | No | `3` | Floored to an integer and clamped to at least `1`. |
 | `timeoutMs` | No | `30000` | Per-test timeout, clamped to at least `1000` milliseconds. |
 | `headersFromEnv` | No | `{}` | Maps lowercase HTTP header names to environment-variable names. Values never belong in config. |
-| `discovery` | No | Disabled | Bounded local source routing and scenario discovery. Omit it for contract-only planning. |
+| `discovery` | No | Disabled | Controls supplemental text sources; live discovery still analyzes the contract. |
+| `isolation` | No | Omitted | Live-mode reset configuration: `{operationId, request}` for a declared, permitted success operation, run before/after each independent unit. No capture variables. |
 
 ### `discovery`
 
@@ -63,7 +66,7 @@ Paths are resolved relative to the directory containing the selected config file
 |---|---:|---:|---|
 | `enabled` | No | `sources.length > 0` | Enables local context discovery. |
 | `required` | No | `false` | With `true`, zero configured or matched sources fails closed. |
-| `sources` | No | `[]` | File/directory entries. A string means `kind: auto`; objects accept `id`, `path`, and `kind: auto|log|document`. Paths must remain beneath the config root. |
+| `sources` | No | `[]` | File/directory entries. A string means `kind: auto`; objects accept `id`, `path`, and `kind: auto\|log\|document`. Paths must remain beneath the config root. |
 | `allowedExtensions` | No | `.json,.jsonl,.log,.md,.txt,.yaml,.yml` | Exact extension allowlist. Binary data is still rejected. |
 | `maxFiles` | No | `100` | Maximum unique regular files after canonical-path deduplication. |
 | `maxFileBytes` | No | `5242880` | Per-file byte ceiling checked before parsing. |
@@ -71,11 +74,12 @@ Paths are resolved relative to the directory containing the selected config file
 | `maxCandidates` | No | `5000` | Pre-deduplication signal ceiling; overflow fails instead of truncating. |
 | `maxCandidatesPerOperation` | No | `20` | Executable discovery expansion ceiling for one operation. |
 | `maxExcerptCharacters` | No | `512` | Deterministic redacted excerpt length stored with citations. |
+| `maxAgentInputCharacters` | No | `200000` | Bounded source text sent for live discovery; overflow fails rather than silently truncating. |
 | `minimumConfidence` | No | `0.85` | `0..1` floor for executable consideration; lower-confidence signals remain report-only. |
 
 Each configured source appears in the source manifest. Missing sources, symlinks, path escapes, non-regular files, binary/NUL data, invalid UTF-8, unsupported extensions, mutation during read, and size/count overflow fail closed. Directories are traversed in sorted order with `.git`, `.gauntlet`, and `node_modules` excluded.
 
-Redaction precedes persistence and agent input. Credential headers/fields, bearer tokens, sensitive query values, emails, and customer-style IDs are replaced. Raw source contents are not copied to run evidence; artifacts retain hashes, source-relative locations, line spans, and redacted excerpts.
+Redaction precedes persistence and agent input. Credential headers/fields, bearer tokens, sensitive query values, emails, and customer-style IDs are replaced. Discovery reports retain hashes, locations, lines and redacted excerpts. Model-call input artifacts can include bounded redacted document text. Pattern-based redaction cannot guarantee removal of every custom sensitive field.
 
 #### Discovery dispositions
 
@@ -83,12 +87,12 @@ Redaction precedes persistence and agent input. Credential headers/fields, beare
 |---|---|---|
 | `generate` | Exact operation/status corroboration and a safe contract-derived input recipe exist. | Adds one case unless semantic deduplication finds an equivalent case. |
 | `merge` | Evidence matches an existing planner or discovery case. | Adds citations; does not add a redundant Playwright test. |
-| `report-only` | Evidence is incomplete, conflicting, undocumented, operational, oversized, or unsafe to reproduce. | Preserved for review and never executed. |
+| `report-only` | Evidence is incomplete, conflicting, undocumented, operational, oversized, or unsafe to reproduce. | Initially unimplemented; eligible live semantic proposals can be implemented by agents. Confident unresolved AI obligations can block acceptance. |
 | `reject` | Ambiguous or policy-denied evidence cannot be trusted. | Preserved with a reason and never executed. |
 
-V1 executable recipes are deliberately narrow: malformed JSON, unsupported media type, bounded query violations, and whitespace validation, each only when the applicable response is declared. Missing auth, not-found, and conflict signals merge into existing contract cases. Oversized payloads, undocumented endpoints, observed undeclared statuses, and unclassified prose remain report-only.
+The offline extractor's executable recipes are deliberately narrow: malformed JSON, unsupported media type, bounded query violations, and whitespace validation, each only when the applicable response is declared. Missing auth, not-found, and conflict signals merge into existing contract cases. Oversized payloads, undocumented endpoints, observed undeclared statuses, and unclassified prose remain report-only.
 
-Candidate IDs are based on normalized semantics, not timestamps, correlation IDs, absolute checkouts, or source order. Duplicate candidates preserve citations in stable path/line order. The planner signs final dispositions and the critic rechecks the report hash and current source bytes.
+Deterministic candidate IDs are based on normalized signals; LLM IDs hash title/scenario/operation content, not timestamps, correlation IDs, absolute checkouts, or source order. Duplicate candidates preserve citations in stable path/line order. The planner hashes final dispositions and the critic rechecks the report hash and current source bytes.
 
 ### `safety`
 
@@ -100,7 +104,7 @@ The `safety` object is required.
 | `allowedMethods` | Yes | None | Non-empty subset of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, and `OPTIONS`. Other values fail configuration validation. |
 | `allowDestructive` | No | `false` | Must be `true` before the planner accepts `POST`, `PUT`, `PATCH`, or `DELETE`. |
 | `allowProduction` | No | `false` | Must be `true` for any non-loopback target, in addition to exact host allowlisting. |
-| `maxRequestsPerRun` | No | `100` | Planning fails if cases plus workflow steps exceed this budget. Clamped to at least `1`. |
+| `maxRequestsPerRun` | No | `100` | Live mode reserves cumulative requests across attempts, including cleanup/reset hooks. Offline mode bounds plan size; reruns are not cumulatively metered by that loop. Clamped to at least `1`. |
 | `maxResponseBytes` | No | `65536` | Maximum response text retained and checked by the worker. Clamped to at least `1024`. |
 
 Loopback hostnames are `localhost`, `127.0.0.1`, and `::1`.
@@ -111,9 +115,12 @@ The `agents` object and both model names are required.
 
 | Field | Required | Default | Rules and effect |
 |---|---:|---:|---|
-| `provider` | Yes | None | `deterministic` keeps runs offline; `openai` makes separate builder and critic Responses API calls. |
-| `builderModel` | Yes | None | Model label or OpenAI model used for builder risk notes. The deterministic compiler still owns executable output. |
+| `provider` | Yes | None | `deterministic` keeps runs offline; `openai` uses six live roles as needed. |
+| `builderModel` | Yes | None | Model authors concrete requests, assertions and workflows; the deterministic compiler validates and renders them. |
 | `criticModel` | Yes | None | Model label or OpenAI model used for critic findings. Hard gates remain authoritative. |
+| `discoveryModel`, `leadModel`, `healerModel` | No | `builderModel` | Role-specific model overrides. |
+| `verifierModel` | No | `criticModel` | Semantic/isolation reviewer. |
+| `timeoutMs` | No | `120000` | Per-model-call timeout in milliseconds. |
 | `openaiBaseUrl` | No | `https://api.openai.com` | Base URL used only by the OpenAI provider. |
 | `apiKeyEnv` | No | `OPENAI_API_KEY` | Name of the environment variable containing the OpenAI API key. |
 
@@ -125,6 +132,9 @@ The `quality` object is required.
 |---|---:|---:|---|
 | `minimumScore` | No | `95` | Numeric pass floor clamped to `0..100`. It cannot override a hard finding. |
 | `minimumOperationCoverage` | No | `1` | Required covered-operation ratio clamped to `0..1`. `1` means 100 percent. |
+| `minimumScenarioCoverage` | No | Live: `1`; offline: `0` | Eligible AI scenario-to-test linkage ratio, clamped to `0..1`. |
+| `requireSemanticVerification` | No | Live: `true`; offline: `false` | Requires reviewed semantic proofs backed by passing linked tests. |
+| `requireIsolationReview` | No | Live: `true`; offline: `false` | Requires isolation review of each standalone test/workflow. |
 
 ## Contract support
 
@@ -149,7 +159,7 @@ A workflow can capture `$response.body#/id`. A later path parameter such as `${s
 
 ## Generated case rules
 
-The planner is deterministic: the same normalized contract, config, and seed produce the same plan.
+The baseline planner is deterministic. Live builder additions and repairs can differ between runs; a fixed seed does not make model output deterministic.
 
 | Kind | Generated when | Expected result |
 |---|---|---|
@@ -159,9 +169,9 @@ The planner is deterministic: the same normalized contract, config, and seed pro
 | `authorization` | The operation is secured and declares `401`. | `401` with configured credentials intentionally omitted. |
 | `not-found` | The operation has a path parameter and declares `404`. | `404` using a deterministic missing identifier. |
 | `conflict` | The operation has a request body and declares `409`. | `409`, normally using `x-gauntlet-conflict-value`. |
-| `discovered` | A high-confidence log/document signal has an exact operation match, declared response, and deterministic contract-derived input. | Declared OpenAPI status/content/schema; source evidence never supplies the oracle. |
+| `discovered` | An eligible deterministic source recipe or validated AI-authored case maps to a declared operation and response. | Declared OpenAPI status/content/schema; source evidence never supplies the oracle. |
 
-Each workflow becomes one serial Playwright test, even when it performs several requests. The request budget counts every workflow step.
+Each workflow becomes one serial Playwright test, even when it performs several requests. The live request budget counts main steps, cleanup and reset hooks. OpenAPI-extension final delete steps are ordinary main steps, not failure-path cleanup; agent workflows expose explicit `cleanupSteps`.
 
 ## Runtime assertions
 
@@ -172,9 +182,10 @@ For every generated case, the worker:
 3. Sends the request with `failOnStatusCode: false` so the contract controls acceptance.
 4. Attaches a redacted request/response exchange.
 5. Checks status, declared content type, and the supported JSON Schema subset.
-6. For positive object requests, checks matching response fields round-trip unchanged.
+6. Checks typed scenario assertions: equals, not-equals, length-equals, contains, gte and lte.
+7. For positive object requests, checks matching response fields round-trip unchanged.
 
-The schema checker covers object properties and required fields, `additionalProperties: false`, arrays and item counts, strings and formats, numeric bounds, enums, constants, nullability, `allOf`, `anyOf`, and `oneOf`.
+The schema checker covers object properties and required fields, `additionalProperties: false`, arrays and item counts, string length/pattern and email format, numeric bounds, enums, constants, nullability, `allOf`, `anyOf`, and `oneOf`.
 
 ## Critic score and hard gates
 
@@ -186,7 +197,9 @@ The deterministic score totals 100 points:
 - 10: artifact integrity and contract hash match
 - 10: no forbidden test controls or invalid traceability
 
-Every blocking model finding subtracts 10 points, but score alone never passes a run. Zero tests, count mismatch, skips, target failure, contract assertion failure, artifact mismatch, forbidden `skip`/`only`/`fixme`, invalid traceability, or insufficient coverage remains blocking. Discovery additionally hard-fails on report hash mismatch, source drift or absence, secret leakage, executable candidates without citations/exact operation mapping, and assertions without active OpenAPI oracle provenance.
+Every corroborated blocking `AI_` critic finding subtracts 10 points, but score alone never passes a run. Zero tests, count mismatch, skips, target failure, contract assertion failure, artifact mismatch, forbidden `skip`/`only`/`fixme`, invalid traceability, or insufficient coverage remains blocking. Discovery additionally hard-fails on report hash mismatch, source drift or absence, secret leakage, executable candidates without citations/exact operation mapping, and assertions without active OpenAPI oracle provenance.
+
+Semantic and isolation gates add `SEMANTIC_COVERAGE_GAP` and `TEST_ISOLATION_GAP`; linkage uses `SCENARIO_COVERAGE_GAP`. Generic new critic opinions are advisory. A score is not a completeness percentage.
 
 ## Terminal statuses
 
@@ -194,8 +207,8 @@ Every blocking model finding subtracts 10 points, but score alone never passes a
 |---|---|
 | `PASSED` | No blocking findings remain and the score meets `minimumScore`. |
 | `FAILED` | A product/contract failure is not safely healable, or the iteration budget ended. |
-| `BLOCKED` | The target was unreachable. Assertions are preserved and the run stops. |
-| `STALLED` | The same plan and failure fingerprint repeated, so the loop stopped rather than retrying forever. |
+| `BLOCKED` | Target/model/configured-operation blockers, unavailable oracles, request limits, context drift or a lead block prevent acceptance. Read findings for the exact cause. |
+| `STALLED` | Repeated failures/proposal errors, no progress, or the bounded lead-decision budget stopped the loop. |
 
 ## Evidence layout
 
@@ -203,25 +216,36 @@ Every blocking model finding subtracts 10 points, but score alone never passes a
 <artifactsDir>/<run-id>/
   run-manifest.json
   events.json
+  context.json
   discovery/report.json
   plan.json
-  generated-manifest.json
-  agents/builder.json
+  scenario-ledger.json
+  coverage-backlog.json              # live semantic obligations
+  analysis.md / analysis.json
+  agents/calls/*-input.json          # live call evidence
+  agents/calls/*-output.json         # or *-error.json
+  agents/lead-*.json / builder-*.json / healer-*.json
+  plans/turn-*.json
+  repairs/turn-*.json
   attempts/<iteration>/
     execution.json
+    verification.json               # live semantic/isolation review
+    critic.json
+    heal.json                       # when a heal occurs
+    integrity-repair.json           # live artifact repair, when needed
     playwright-report.json
     junit.xml
     html/index.html
-    stdout.log
-    stderr.log
-    critic.json
-    heal.json
+    stdout.log / stderr.log
     test-results/
-  heal-<iteration>.diff
   result.json
 ```
 
-`run-manifest.json` records the contract/config identity, seed, target origin, source revision, and agent identities. `events.json` is the ordered state ledger. `result.json` is the terminal summary. Attempt directories contain the raw execution and critic evidence needed to audit the verdict.
+Not every mode or attempt emits every optional file. Offline generation stores `generated-manifest.json` and `agents/builder.json`; live runs use turn-numbered builder artifacts. Artifact-drift repairs write diffs, while agent implementation repairs retain before/after plans under `repairs/`.
+
+`analysis.md` consolidates history; `result.json` is the terminal summary. `scenario-ledger.json` records implementation links; `coverage-backlog.json` records verification/reconciliation state. Do not treat either a link or an execution score as exhaustive coverage.
+
+Cross-run state lives in `<artifactsDir>/.maintenance/<generated-directory-hash>/`: `latest.json`, `history/`, `validated-plan.json` for successful plans, and a live `coverage-backlog.json`. Locks live at `<generatedDir>/.maintenance.lock`; after a crash, verify the process has stopped before removing a stale lock.
 
 ## Related
 

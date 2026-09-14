@@ -1,8 +1,8 @@
 # Autonomous agent loop
 
-The default project configuration uses `gpt-5.6-luna` for discovery, lead, builder, critic, and healer. The CLI loads `.env` beside the selected configuration file; already exported environment variables take precedence. Node 20.12 or newer is required.
+The default project configuration uses `gpt-5.6-luna` for discovery, lead, builder, verifier, critic, and healer. The CLI loads `.env` beside the selected configuration file; already exported environment variables take precedence. Node 20.12 or newer is required.
 
-Set `GAUNTLET_BASE_URL` in that `.env` to override the configured API target, for example `GAUNTLET_BASE_URL=https://api.example.com`. When unset or blank, the selected config's `baseUrl` is used. The target must still satisfy `safety.allowedHosts` and `safety.allowProduction` in the config. See `.env.example`.
+Set `GAUNTLET_BASE_URL` in that `.env` to override the configured API target, for example `GAUNTLET_BASE_URL=https://api.example.com`. When unset or blank, the selected config's `baseUrl` is used. The target must still satisfy `safety.allowedHosts` and `safety.allowProduction` in the config. See [the environment template](../.env.example) and [configuration precedence](configuration.md#endpoint-and-environment).
 
 Put `OPENAI_API_KEY` in that untracked `.env`, then run:
 
@@ -20,9 +20,9 @@ npm run gauntlet -- run --watch
 
 Watch mode monitors the configured spec, configuration file, discovery files/directories, and framework module fingerprint. Directory sources include newly added files. It coalesces successive changes and serializes runs; a change during execution causes a fresh run afterward. Ctrl+C stops monitoring after the active run finishes. A failed revision is not repeatedly retried without a context change; use a one-shot run to retry unchanged context after repairing an external service.
 
-Each run writes `analysis.md`, `analysis.json`, `context.json`, and `scenario-ledger.json` in its evidence directory. The CLI prints the Markdown report path. The report combines every execution attempt, earlier failures, repair diagnoses, final findings, scenario links, context changes and reported model usage. It distinguishes execution score from scenario completeness.
+Each run writes `analysis.md`, `analysis.json`, `context.json`, `scenario-ledger.json`, and `coverage-backlog.json` in its evidence directory. The CLI prints the Markdown report path. The report combines every execution attempt, earlier failures, repair diagnoses, final findings, scenario links, context changes and reported model usage. It distinguishes execution score from scenario completeness.
 
-Maintenance history lives under the artifacts directory's `.maintenance/` folder. A successful plan can seed a later agentic run only when context, configuration and framework hashes match. Discovery, generation, execution and critique still run again. Changed context starts fresh; semantic reconciliation of changed requirements with previous tests remains a later milestone. Persisted plans have integrity checks. Only successful plans are promoted for reuse.
+Maintenance history lives under the artifacts directory's `.maintenance/` folder. A successful plan can seed a later agentic run only when context, configuration and framework hashes match. Discovery, generation, execution, verification and critique still run again. Changed context starts a fresh test implementation while retaining previous obligations for explicit semantic reconciliation. The verifier can map duplicates or changed obligations to freshly verified replacements; ambiguous removals stay unresolved. Persisted plans have integrity checks. Only successful plans are promoted for reuse.
 
 Concurrent runs or generation into the same generated directory are rejected by `.maintenance.lock`. Normal completion and exceptions release it. After a hard process crash, verify no run is active before removing the stale lock. Automatic crash recovery is not yet implemented.
 
@@ -52,7 +52,7 @@ To select another model temporarily:
 npm run gauntlet -- run --agentic --model YOUR_MODEL_ID
 ```
 
-For another API, use `--config path/to/gauntlet.config.json`. The config may set `agents.discoveryModel`, `leadModel`, `builderModel`, `criticModel`, and `healerModel` separately; missing discovery/lead/healer models inherit `builderModel`. `agents.provider` must be `openai` to use live agents. `--agentic --model` overrides provider and all role models for that invocation.
+For another API, use `--config path/to/gauntlet.config.json`. The config may set `agents.discoveryModel`, `leadModel`, `builderModel`, `verifierModel`, `criticModel`, and `healerModel` separately; missing discovery/lead/healer models inherit `builderModel`, and `verifierModel` inherits `criticModel`. `agents.provider` must be `openai` to use live agents. `--agentic --model` overrides provider and all role models for that invocation.
 
 ## What the agents actually control
 
@@ -61,14 +61,15 @@ For another API, use `--config path/to/gauntlet.config.json`. The config may set
 | Discovery | Reads complete bounded, redacted source text and the full contract, identifies semantic edge cases and business scenarios, and returns rationale plus verifiable source citations. It also analyzes the contract when no local sources are enabled. |
 | Lead | Selects `build`, `execute`, `heal`, `accept`, or `block` using the current plan, discoveries, evidence, critic findings, and remaining budgets. Supplies the delegated task and can request further coverage after a passing execution. |
 | Builder | Authors concrete requests and ordered workflows with response captures and variable substitution. Validated proposals become executable Playwright tests, rather than advisory notes. Receives rejection feedback and critic findings on subsequent builds. |
+| Verifier | Independently reviews scenario assertions and test isolation. Structured proof choices are limited to linked tests that passed and their executable assertion pointers. Missing, invalid or incomplete proofs block semantic acceptance; reviewed replacements preserve reconciliation evidence. |
 | Critic | Inspects the implemented plan and real execution evidence. Deterministic integrity, coverage, execution and response-contract gates remain authoritative; unsupported model concerns remain visible warnings. |
 | Healer | Diagnoses failed cases using actual error messages and redacted HTTP exchanges. Changes generated request inputs or inserts preparation steps before an existing test, while preserving existing tests and response assertions, then submits the revised implementation for another full run. Genuine product defects remain failures. |
 
 Healer inputs now also include bounded observations from successful tests, with timestamps where Playwright supplies them. This lets the agent investigate preceding deletes, creates and resets instead of assuming the API still has its initial fixture state. Truncated evidence is marked; the full Playwright report remains available in the run directory. Classification is still model reasoning, not a guaranteed diagnosis.
 
-Tests use a declarative implementation format: operation, expected declared status, path/query/header/body inputs, scenario-specific response assertions, and workflow steps with captures. A deterministic renderer translates the agent-authored implementation into Playwright tests. Models do not execute arbitrary JavaScript or shell commands. Currently repairs can change generated request inputs (including baseline requests), add workflows, and insert setup steps immediately before an existing case; they cannot remove baseline cases, change expected responses or assertions, reorder existing workflows, change capture definitions, modify the API application, or fix framework source code during a run. Unsupported repairs and business assertions without a usable contract remain reported gaps.
+Tests use a declarative implementation format: operation, expected declared status, path/query/header/body inputs, scenario-specific response assertions, and workflow steps with captures. A deterministic renderer translates the agent-authored implementation into Playwright tests. Models do not execute arbitrary JavaScript or shell commands. Currently repairs can change generated request inputs (including baseline requests), add workflows with cleanup, append assertions, and insert setup steps immediately before an existing case; they cannot remove baseline cases, change expected responses or assertions, reorder existing workflows, change capture definitions, modify the API application, or fix framework source code during a run. Unsupported repairs and business assertions without a usable contract remain reported gaps.
 
-Example builder proposal:
+Example decoded builder proposal (not the raw model transport; JSON-encoded request/capture/assertion values are decoded before compilation):
 
 ```json
 {
@@ -82,15 +83,33 @@ Example builder proposal:
   }],
   "workflows": [],
   "repairs": [],
+  "assertionAdditions": [],
+  "coverageLinks": [],
   "riskNotes": []
 }
 ```
 
-The response schema and expected content type come from the selected OpenAPI response. Existing expectations cannot be changed by a repair. Request maps and bodies replace those fields; omitted request fields retain their current values. Credentials are supplied through `headersFromEnv`, never model-generated headers. All tests can reference `${runId}`. Workflow values can also reference a named variable captured by an earlier step. Step IDs are scoped to their workflow; captures use explicit names. Scenario assertions support equality, inequality, length, containment and numeric bounds, cite the associated operation or nested contract pointer, and cannot be changed during repair. A citation identifies the contract context; inferred behavior must still be explained as inference in the rationale.
+The response schema and expected content type come from the selected OpenAPI response. Existing expectations cannot be changed by a repair. Request maps and bodies replace those fields; omitted request fields retain their current values. Valid credentials are supplied through `headersFromEnv`. Missing/invalid-auth tests can omit auth or use compiler-controlled synthetic invalid credentials for declared 401/403 responses. All tests can reference `${runId}`. Workflow values can also reference a named variable captured by an earlier step. Step IDs are scoped to their workflow; captures use explicit names. Scenario assertions support equality, inequality, length, containment and numeric bounds, cite the associated operation or nested contract pointer, and cannot be changed during repair. A citation identifies the contract context; inferred behavior must still be explained as inference in the rationale.
+
+## Semantic obligations
+
+`quality.requireSemanticVerification` and `quality.requireIsolationReview` default to true for live runs. They add gates beyond `minimumScenarioCoverage`, which checks links only. The verifier reviews eligible AI obligations at the configured confidence threshold; low-confidence proposals remain visible without implying that they have been verified.
+
+`coverage-backlog.json` persists after unsuccessful as well as successful runs. Current emitted states are `unimplemented`, `verified`, `gap`, `needs-review` and `superseded`. Implementation links are tracked separately in `scenario-ledger.json`. Rediscovery retains omitted obligations and cannot silently lower their confidence or reject them. A superseded obligation records its replacement IDs and review reason. Verification is refreshed every run.
+
+Each obligation gets exactly one keyed review. Proof choices are limited to that obligation's linked, passing tests and the assertions the runtime actually checks. The framework validates them again; schema descriptions and invented pointers are not evidence. This is bounded model review of observable behavior, not formal proof or a claim that discovery found every requirement.
+
+## Cleanup and isolation
+
+Agent workflows accept `cleanupSteps` alongside main `steps`. Cleanup uses the same declared operation/status/request format, can reference earlier captures, and runs after failed assertions as well as success. Later cleanup steps are attempted even if an earlier one fails. Unavailable captures and cleanup failures are reported; they do not erase the original failure.
+
+`assertionAdditions: [{caseId, assertions}]` appends validated assertions to existing tests. It cannot remove or replace expectations. `repairs[].setupSteps` establishes prerequisites before an existing case. Existing capture definitions and main-step order are still immutable.
+
+For disposable targets with a declared reset endpoint, [configure reset hooks](configuration.md#optional-test-environment-reset). The bundled sample enables them; arbitrary target APIs do not automatically gain a reset operation. All cleanup/reset traffic consumes the cumulative live request budget. Process termination, timeouts or target unavailability can prevent successful cleanup.
 
 ## Bounds and failure behavior
 
-`maxIterations` limits full executions. Lead decisions are separately bounded to `4 * maxIterations + 2`. In agentic runs `safety.maxRequestsPerRun` is cumulative across reruns, conservatively reserving the entire planned request count before each execution. `agents.timeoutMs` bounds each model call (default 120 seconds).
+`maxIterations` limits full executions. Lead decisions are separately bounded to `4 * maxIterations + 2`. In agentic runs `safety.maxRequestsPerRun` is cumulative across reruns, conservatively reserving the entire planned request count before each execution, including cleanup and reset hooks. `agents.timeoutMs` bounds each model call (default 120 seconds).
 
 `discovery.maxAgentInputCharacters` defaults to 200,000 characters of source text. Oversized input fails before a model call; it is never silently truncated. The provider also bounds serialized input and output sizes. Narrow configured sources when the budget is exceeded. `discovery.maxCandidates` and `maxCandidatesPerOperation` bound proposals and generated agent cases.
 
@@ -106,13 +125,16 @@ Run evidence is written to `.gauntlet/runs/<run-id>/`:
 - `agents/lead-*.json`, `builder-*.json`, `healer-*.json`: accepted role decisions and model/prompt/response hashes.
 - `discovery/report.json`: semantic proposals, rationale, citations, source hashes and model invocation.
 - `plans/turn-*.json` and `plan.json`: authored plan revisions and current plan.
+- `attempts/<n>/verification.json`: semantic/isolation review, proof references and findings.
 - `attempts/<n>/execution.json`, `critic.json`, and Playwright reports: real execution results, failure messages and exchanges.
 - `repairs/turn-*.json`: before/after implementation and diagnosis; `heal.json` records the repair decision.
 - `events.json` and `result.json`: ordered lifecycle and terminal status.
+- `analysis.md`, `analysis.json`, `context.json`, `scenario-ledger.json`, `coverage-backlog.json`: consolidated report, revision metadata, implementation links and reviewed obligations.
 
 For a clean discovery JSON artifact, suppress npm's lifecycle headers:
 
 ```bash
+mkdir -p .gauntlet
 npm run --silent gauntlet -- discover > .gauntlet/discovery.json
 ```
 

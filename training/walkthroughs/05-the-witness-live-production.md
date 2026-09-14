@@ -2,16 +2,18 @@
 
 This walkthrough lets you prove three different layers yourself, in order:
 
-1. an OpenAI-assisted, GET-only production preflight;
+1. a live-agent, GET-only production preflight;
 2. a safe authenticated journey that creates and archives disposable records;
 3. a full journey that contacts configured lookup providers, runs analysis, and sends real report email.
 
 The three layers are intentionally separate. A healthy endpoint is not proof that
 authentication, persistence, workers, providers, analysis, and delivery all work.
 
+This is an operator runbook, not a current production-health report. The safe/full journeys are hand-written tests; the agent loop does not author or heal them. Commands below use zsh prompt syntax.
+
 ## Before you start
 
-Run every command from the repository root. You need Node.js 20+, installed
+Run every command from the repository root. You need Node.js 20.12+, installed
 dependencies, an OpenAI API key for the preflight, and a dedicated The Witness
 test account. Do not use credentials you reuse elsewhere.
 
@@ -24,7 +26,7 @@ The live Playwright journey has two confirmation gates:
 
 The API exposes no account, case, or lookup deletion route in the source-derived
 contract. The walkthrough archives its case and revokes its session, but the test
-account, archived case, lookup, and reports remain in production.
+account, archived case, lookup, and reports remain in production. Because this hand-written suite uses serial tests, an earlier failure can skip the archive test. Logout is best-effort teardown and does not assert session revocation; verify retained records and session state if cleanup is interrupted.
 
 ## Step 1: install and check the framework
 
@@ -47,24 +49,20 @@ echo
 npm run witness:demo
 ```
 
-Expected: the first injected attempt fails because generated test data was made
-stale, the bounded healer restores only signed generated files, and the next
-attempt passes. The final JSON should report `status: PASSED`, `iterations: 2`,
-`score: 100`, and `tests: 27`.
+Expected: actual model calls and loopback-only API execution produce a final status and evidence directory. The live loop may repair the injected artifact before execution, so neither exactly two attempts nor 27 tests is a current guarantee. Inspect `analysis.md`, `coverage-backlog.json`, `agents/calls/` and any `attempts/<n>/integrity-repair.json` or `heal.json`. If the result is blocked, resolve the reported scenario/isolation/budget gap before proceeding; do not claim a passing local proof.
 
-Copy the printed `runDir`; inspect `result.json`, `attempts/1/heal.json`,
-`attempts/1/heal-1.diff`, and the final `critic.json`. This is the OpenAI
-identification/critique plus deterministic Playwright generation and self-heal
-proof, against the no-egress local fixture.
+This checks the local contract fixture with external model calls. Use `npm run demo` for a repeatable offline, two-attempt generated-drift exercise.
 
 ## Step 3: validate the live preflight without calling production
+
+Clear `GAUNTLET_BASE_URL` before selecting the preflight profile, and leave it unset in the profile's adjacent `.env`. Its target is the configured production URL. The separate hand-written journeys use `WITNESS_BASE_URL`, not `GAUNTLET_BASE_URL`; ensure both tracks intentionally select the same environment.
 
 ```bash
 npm run gauntlet -- doctor --config examples/the-witness/live/gauntlet.safe.config.json
 npm run gauntlet -- generate --config examples/the-witness/live/gauntlet.safe.config.json
 ```
 
-Expected: `doctor` accepts the production opt-in, exact hostname allowlist,
+`generate` makes paid model calls and may add permitted GET cases; it makes no target requests. Expected: `doctor` accepts the production opt-in, exact hostname allowlist,
 GET-only method allowlist, and OpenAPI document. `generate` produces a small plan
 for `/health`, `/ready`, and `/v1/auth/oauth/providers` without making an HTTP
 request to production.
@@ -85,16 +83,14 @@ npm run witness:live:preflight
 ```
 
 Expected: real requests to the three read-only production operations pass,
-operation coverage is `1`, and the terminal result is `PASSED`. Because
-`--inject-stale-data` is enabled, expect a bounded generated-data repair and no
-application or contract edit. Save the printed `runDir`.
+operation coverage is `1`, and the terminal result is `PASSED`. The injected artifact may be repaired before execution. The 12-request budget is cumulative in live mode; additional semantic scenarios or reruns can block the profile. Inspect the report rather than assuming a fixed pass or attempt count. Save the printed `runDir`.
 
 Useful evidence:
 
 ```bash
 sed -n '1,240p' "<runDir>/result.json"
-sed -n '1,240p' "<runDir>/agents/builder.json"
-sed -n '1,240p' "<runDir>/attempts/1/heal.json"
+sed -n '1,240p' "<runDir>/analysis.md"
+sed -n '1,240p' "<runDir>/attempts/1/verification.json"
 ```
 
 Replace `<runDir>` with the path printed by the command. No production record or
@@ -139,7 +135,9 @@ The passing checks prove:
 - an unauthenticated session request is rejected with `401`;
 - signup/login returns a bearer session and the authenticated session matches your email;
 - a case can be created, updated, read, listed, and finally archived;
-- logout revokes the test session.
+- OAuth provider availability is readable without starting a provider transaction.
+
+Logout is attempted in teardown; this suite does not assert that revocation succeeded.
 
 The two skipped tests are the lookup-provider and analysis/email tests. If they
 run in safe mode, stop: the mode gate is not working as designed.
@@ -192,9 +190,9 @@ The additional checks prove the production API and worker can:
 3. attach it to the disposable case;
 4. queue and persist a newer cumulative analysis report;
 5. have the email provider accept both lookup and case report delivery;
-6. archive the case and revoke the session.
+6. archive the case on the successful path; logout is attempted afterward.
 
-Confirm both report messages arrive in the inbox. An API `200 delivered: true`
+Opening a browser email draft or seeing an email button is not direct-delivery evidence. Confirm both report messages arrive in the inbox. An API `200 delivered: true`
 proves provider acceptance, while inbox receipt proves the final user-visible
 boundary. Check spam/junk before declaring delivery broken.
 
@@ -212,7 +210,7 @@ boundary. Check spam/junk before declaring delivery broken.
 | email is `502` or `503` | delivery provider/configuration failed | API logs and email-provider configuration |
 | API says delivered but inbox is empty | acceptance did not become receipt | spam/junk, suppression/bounce records, provider delivery log |
 
-The Gauntlet healer repairs only generated-test drift. It must not change the
+The Gauntlet healer repairs supported generated-test implementations and artifact drift, not this hand-written journey or the product. It must not change the
 production API, weaken an assertion, or reinterpret a real product failure as a
 pass. The full journey is deliberately hand-written because its asynchronous
 worker polling and irreversible external actions require explicit human review.
@@ -229,7 +227,7 @@ unset WITNESS_E2E_LOOKUP_PURPOSE WITNESS_LIVE_CONFIRM
 Expected: the following command prints nothing:
 
 ```bash
-env | grep -E '^(OPENAI_API_KEY|WITNESS_E2E_|WITNESS_LIVE_CONFIRM)='
+env | rg '^(OPENAI_API_KEY|WITNESS_E2E_[^=]*|WITNESS_LIVE_CONFIRM)='
 ```
 
 This does not delete the production records described above.

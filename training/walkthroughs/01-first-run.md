@@ -1,10 +1,10 @@
 # Walkthrough 1: run the inventory gauntlet by hand
 
-You will start the training API yourself, validate its contract, generate its test plan, execute the plan, and inspect the passing result. This exposes every command hidden behind `npm run course:example`.
+You will start the training API yourself, validate its contract, generate its test plan, execute the plan, and inspect the passing result. The training configuration is deterministic and makes no model calls. This exposes every command hidden behind `npm run course:example`.
 
 ## What you need
 
-- Node.js 20 or newer
+- Node.js 20.12 or newer
 - `npm ci` completed in the repository root
 - Two terminal windows
 
@@ -104,11 +104,12 @@ npm run gauntlet -- report <run-id> --config training/example-project/gauntlet.c
 
 Then inspect these files inside the printed run directory:
 
-1. `events.json`: ordered `DISCOVER → PLAN → GENERATE → EXECUTE → CRITIQUE → PASSED` transitions.
-2. `attempts/1/execution.json`: 13 Playwright tests, their pass/fail counts, duration, and report paths.
-3. `attempts/1/critic.json`: score components, findings, hard failures, and critic identity.
-4. `attempts/1/html/index.html`: browsable Playwright report.
-5. `result.json`: final status, findings, events, and any heal decisions.
+1. `analysis.md`: consolidated report, context and all attempts.
+2. `events.json`: ordered `DISCOVER → PLAN → GENERATE → EXECUTE → CRITIQUE → PASSED` transitions.
+3. `attempts/1/execution.json`: 13 Playwright tests, their pass/fail counts, duration, and report paths.
+4. `attempts/1/critic.json`: score components, findings, hard failures, and critic identity.
+5. `attempts/1/html/index.html`: browsable Playwright report.
+6. `result.json`: final status, findings, events, and any heal decisions.
 
 The 13 Playwright tests are 12 standalone cases plus one workflow test. The workflow itself makes three HTTP requests.
 
@@ -126,7 +127,7 @@ Next: [Walkthrough 2: evidence and safe healing](02-evidence-and-healing.md).
 
 ### `CREDENTIAL_MISSING: TRAINING_API_KEY`
 
-The config names the environment variable but never loads `.env` automatically. Export it in the same terminal that runs the gauntlet:
+The CLI loads `.env` beside the selected config, so this exercise would use `training/example-project/.env`, not the repository-root file. Export it in the same terminal that runs the gauntlet:
 
 ```bash
 export TRAINING_API_KEY=training-local-key

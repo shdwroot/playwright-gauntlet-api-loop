@@ -1,10 +1,10 @@
 # How to test your own API
 
-You will create a bounded config beside your OpenAPI contract, review the generated plan, run it against a chosen environment, and audit the final evidence.
+This walkthrough configures the real agent loop. You will create a bounded config beside your OpenAPI contract, review the generated plan, run it against a chosen environment, and audit the final evidence.
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 20.12 or newer
 - A local OpenAPI 3.x JSON or YAML file
 - A target environment whose data may safely be read or mutated by the planned cases
 - Credential environment-variable names and values, if the API is secured
@@ -15,11 +15,10 @@ Start with a local or disposable test environment. Do not point the first genera
 
 ```bash
 mkdir -p my-api-gauntlet
-cp training/example-project/gauntlet.config.json my-api-gauntlet/gauntlet.config.json
 cp training/example-project/openapi.yaml my-api-gauntlet/openapi.yaml
 ```
 
-Replace `my-api-gauntlet/openapi.yaml` with your contract. The config loader intentionally requires the spec, generated directory, and artifact directory to remain inside the config directory.
+Replace `my-api-gauntlet/openapi.yaml` with your contract. The commands create a starter example; review existing files before copying over your own contract. The config loader intentionally requires the spec, generated directory, and artifact directory to remain inside the config directory.
 
 ## Step 2: Make the contract generation-ready
 
@@ -39,7 +38,7 @@ The contract is the test oracle. If it is stale, the framework will faithfully t
 
 ## Step 3: Bound the target in config
 
-Edit `my-api-gauntlet/gauntlet.config.json`:
+Create `my-api-gauntlet/gauntlet.config.json`:
 
 ```json
 {
@@ -63,9 +62,9 @@ Edit `my-api-gauntlet/gauntlet.config.json`:
     "maxResponseBytes": 65536
   },
   "agents": {
-    "provider": "deterministic",
-    "builderModel": "deterministic-v1",
-    "criticModel": "deterministic-v1"
+    "provider": "openai",
+    "builderModel": "gpt-5.6-luna",
+    "criticModel": "gpt-5.6-luna"
   },
   "quality": {
     "minimumScore": 95,
@@ -74,11 +73,15 @@ Edit `my-api-gauntlet/gauntlet.config.json`:
 }
 ```
 
+This minimal config performs live contract-only discovery. Add `"discovery": {"enabled": true, "required": true, "sources": ["context"]}` and create `my-api-gauntlet/context/` for supporting requirements/logs. A local OpenAPI 3 contract is still mandatory.
+
 Begin with `GET` only. If the contract contains mutations, doctor can still load it, but the planner will mark denied operations uncovered and a 100 percent coverage gate will prevent a false pass.
 
 Only add `POST`, `PUT`, `PATCH`, or `DELETE` after reviewing the exact target and cases. Those methods also require `allowDestructive: true`.
 
 ## Step 4: Map credential names, not values
+
+Put `OPENAI_API_KEY` in the untracked `my-api-gauntlet/.env` or export it privately. The root `.env` is not loaded for this nested config. You can also set `GAUNTLET_BASE_URL` there to override `baseUrl`; update the target allowlist accordingly. Existing exports win.
 
 For a bearer token:
 
@@ -115,7 +118,7 @@ If you configured logs or documents, inspect their decisions first:
 npm run gauntlet -- discover --config my-api-gauntlet/gauntlet.config.json
 ```
 
-Resolve unexpected `report-only`/`reject` findings, source errors, and contract gaps before generating. See [Walkthrough 4](04-context-discovery.md).
+Discovery and generation contact the model provider but do not execute target requests. Resolve unexpected `report-only`/`reject` findings, source errors, and contract gaps before generating. See [Walkthrough 4](04-context-discovery.md).
 
 ```bash
 npm run gauntlet -- generate --config my-api-gauntlet/gauntlet.config.json
@@ -137,7 +140,9 @@ Start your API separately, then execute:
 npm run gauntlet -- run --config my-api-gauntlet/gauntlet.config.json
 ```
 
-The runner regenerates before execution, verifies artifact integrity, runs serially with zero retries, critiques the evidence, and stops on pass, block, denied healing, repetition, or the iteration limit.
+The run generates through real agents, verifies artifact integrity, executes with one worker and zero retries, reviews semantic coverage/isolation, and critiques/heals within the configured bounds. A prior standalone `generate` does not freeze the next live plan; safety policy still constrains every new proposal.
+
+For continued maintenance, use `npm run gauntlet -- run --watch --config my-api-gauntlet/gauntlet.config.json`. It detects configured context changes and prints an analysis report per run. Restart it after `.env` changes. A target-only outage recovery does not change context; use a one-shot run to retry.
 
 ## Step 8: Verify the claimed layer
 
@@ -181,22 +186,13 @@ Workflow request overrides must still satisfy the operation's request schema. Th
 
 If an operation is safe only with workflow-created data, set `x-gauntlet-skip-standalone: true` on that operation. The workflow can still count as its coverage.
 
-## Switch to OpenAI-assisted review
+## Choose isolation and understand repair boundaries
 
-Deterministic mode is the default and owns the executable plan in all cases. Optional OpenAI mode adds model-generated builder risk notes and critic findings; it does not grant the model authority to write tests or weaken hard gates.
+Do not copy the sample's reset operation into a target that lacks it. If your test API has a declared, permitted reset operation, configure [per-test reset hooks](../../docs/configuration.md#optional-test-environment-reset). Otherwise, agents need supported setup, captures and cleanup to keep tests independent. Reset and cleanup requests count against the cumulative live budget.
 
-```json
-{
-  "agents": {
-    "provider": "openai",
-    "builderModel": "your-builder-model",
-    "criticModel": "your-critic-model",
-    "apiKeyEnv": "OPENAI_API_KEY"
-  }
-}
-```
+The OpenAPI-extension example above puts delete in the main sequence: it will not run after a preceding failed main step. Agent-authored workflows can put resource deletion in `cleanupSteps`, which runs after failure. Existing expectations remain immutable; additions can strengthen tests, but arbitrary capture/order/code repairs are not supported.
 
-Then export the named key before generating or running. This mode makes external API calls and may incur cost; deterministic mode remains suitable for offline CI.
+For repeatable offline baseline generation, explicitly choose `agents.provider: "deterministic"` with model labels such as `deterministic-v1`, or use the training config. This turns off live discovery/authoring/verifier calls; it is not the autonomous mode.
 
 ## Verification checklist
 

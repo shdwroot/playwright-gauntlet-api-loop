@@ -2,6 +2,8 @@
 
 You will observe both sides of the safety boundary: a generated-data fault the healer may repair, and an API response defect the healer must leave red.
 
+These exercises use deterministic fixtures. In the [live loop](../../docs/agentic-loop.md), real agents additionally repair request/setup faults, append assertions and add workflows; the same contract boundaries apply.
+
 ## What you need
 
 - The repository dependencies installed
@@ -72,16 +74,12 @@ Expected terminal result:
 {
   "status": "FAILED",
   "iterations": 1,
-  "score": 45,
-  "hardFindings": ["SKIPPED_TESTS", "CONTRACT_ASSERTION_FAILED"]
+  "score": 60,
+  "hardFindings": ["CONTRACT_ASSERTION_FAILED"]
 }
 ```
 
-An exit code of `1` is expected in this exercise. The `getHealth` case fails
-first. Because the generated suite runs serially, Playwright then skips the
-remaining 12 tests. `CONTRACT_ASSERTION_FAILED` identifies the primary product
-defect, while `SKIPPED_TESTS` ensures that a partial run cannot pass. The skipped
-tests are a consequence of the first failure, not 12 additional API defects.
+An exit code of `1` is expected. The health case fails, while independent tests continue: the current renderer uses default test mode with one worker, not a serial fail-and-skip suite. Main steps within a failed workflow stop, but agent-authored cleanup is still attempted. Unexpected skips would be an additional hard-gate failure.
 
 Copy the `runId` and print the complete result:
 
@@ -123,13 +121,13 @@ This order prevents two common mistakes: treating an unreachable API as a schema
 | Generated hashes differ from the trusted candidate | Generated drift | Regenerate within the bounded healer policy. |
 | Signed candidate matches the contract but an assertion fails | Product or contract disagreement | Review the API and contract; do not auto-heal. |
 | `TARGET_UNREACHABLE` | Infrastructure failure | Restore connectivity; keep expectations unchanged. |
-| `SKIPPED_TESTS` after an earlier serial failure | The full candidate plan did not execute | Resolve the first failure and rerun; never treat the partial run as a pass. |
+| `SKIPPED_TESTS` | The full candidate plan did not execute | Resolve the first failure and rerun; never treat the partial run as a pass. |
 | Zero tests or collection error | Framework failure | Fix collection/runtime setup; never call it a passing API. |
 | Same candidate and failure fingerprint repeats | Stalled loop | Stop and investigate instead of spending more iterations. |
 
 ## What you learned
 
-Healing is not “make the tests green.” It is “restore generated files to the already trusted contract-derived candidate.” If that candidate still fails, the framework preserves the failure.
+This offline exercise proves restoration of generated files to the trusted candidate. Live agents can also repair generated request/setup implementations using execution evidence. Neither mode may rewrite an authoritative expectation to match a product defect.
 
 Next: [Walkthrough 3: bring your own API](03-bring-your-own-api.md).
 
