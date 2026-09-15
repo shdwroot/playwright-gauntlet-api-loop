@@ -6,13 +6,13 @@ The target is the [user-defined lifecycle](agentic-objectives-audit.md). Normal 
 
 | Area | Delivered | Still to implement |
 | --- | --- | --- |
-| Lifecycle | Revision fingerprints, serialized watch runs, locks, history, unchanged-revision plan reuse | Automatic crash recovery and resumable execution |
+| Lifecycle | Prompt/context revision fingerprints, serialized watch runs, locks, history, unchanged-revision plan reuse | Automatic crash recovery and resumable execution |
 | Analysis | Consolidated Markdown/JSON, complete attempt history, repairs and model usage | Optional final analyst role and richer requirement/conflict analysis |
 | Semantic coverage | Persistent obligations, independent verifier, fresh assertion evidence, reviewed replacement mappings | Exhaustive discovery assurance is not available; broader coverage dimensions and assertion effectiveness checks |
-| Test implementation | Typed requests/assertions/workflows, setup insertion, cleanup and reset hooks | XML and arbitrary response-header assertions, capture/order repairs and broader implementation repair |
+| Test implementation | Typed requests, body/header assertions, bounded concurrency, per-status schemas, setup/cleanup and source-permitted outcome corrections | XML, capture/order repairs and broader implementation repair |
 | Reconciliation | Retain omitted obligations; reconcile duplicates/changed context to freshly verified replacements | Selective regeneration and automated handling of ambiguous requirement removals |
 | Inputs | OpenAPI 3.x plus bounded UTF-8 context | Swagger 2, WSDL/XSD/SOAP, structured Gherkin, PDF/DOCX and requirements-only projects |
-| Verification | Offline regression and focused real Luna lifecycle checks | Representative multi-format and stateful API acceptance campaign |
+| Verification | Offline regression, OpenAI/Azure HTTP orchestration, focused real Luna lifecycle checks and local RESTaurant setup | Representative multi-format and stateful API acceptance campaign |
 
 These partial areas must not be described as wholly complete. See [recorded validation](validation.md); historical counts and fixture runs are not current production certification.
 
@@ -32,7 +32,7 @@ Each adapter needs extraction/normalization checks **and generated request execu
 - Track declared responses, input partitions, authorization roles and state transitions separately from operation coverage.
 - Measure assertions with mutation or controlled fault injection in fixtures that explicitly support it.
 - Add state-graph exploration and isolated test-data provisioning with cleanup evidence.
-- Introduce bounded provider recovery/spend policies, selective affected-test regeneration and interruption recovery.
+- Extend the existing bounded HTTP 429 recovery and exhausted-credit detection with provider-spend budgets, selective affected-test regeneration and interruption recovery.
 - Preserve visible unresolved gaps; never lower a gate merely to obtain a passing report.
 
 ## Acceptance criteria for later milestones

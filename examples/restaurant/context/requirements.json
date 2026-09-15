@@ -1,0 +1,100 @@
+{
+  "title": "Damn Vulnerable RESTaurant starter acceptance criteria",
+  "upstream_commit": "d32d09972aec7830f5f1d4a5d274cac7aae7eb82",
+  "scope": "Disposable local lab. These starter criteria are not an exhaustive application specification. Security targets describe desired secure behavior and may fail on the upstream vulnerable version.",
+  "requirements": [
+    {
+      "id": "LAB-HEALTH",
+      "title": "Health endpoint",
+      "track": "functional",
+      "endpoints": [
+        "GET /healthcheck"
+      ],
+      "acceptance_criteria": [
+        "GET /healthcheck returns HTTP 200 with a JSON object."
+      ]
+    },
+    {
+      "id": "LAB-REGISTER",
+      "title": "Disposable customer registration",
+      "track": "functional",
+      "endpoints": [
+        "POST /register"
+      ],
+      "acceptance_criteria": [
+        "Registering a fresh username and phone number with all required fields returns HTTP 201 and the same username.",
+        "The registered account has the Customer role."
+      ]
+    },
+    {
+      "id": "LAB-DUPLICATE",
+      "title": "Duplicate registration",
+      "track": "functional",
+      "endpoints": [
+        "POST /register"
+      ],
+      "acceptance_criteria": [
+        "Repeating registration with an already-registered username or phone number returns HTTP 403."
+      ]
+    },
+    {
+      "id": "LAB-LOGIN",
+      "title": "Form login and profile",
+      "track": "functional",
+      "endpoints": [
+        "POST /token",
+        "GET /profile"
+      ],
+      "acceptance_criteria": [
+        "A registered customer can log in using form-encoded credentials; POST /token returns HTTP 200, a nonempty access_token and token_type bearer.",
+        "GET /profile with that access token returns HTTP 200 and the registered username."
+      ]
+    },
+    {
+      "id": "LAB-BAD-LOGIN",
+      "title": "Invalid login",
+      "track": "functional",
+      "endpoints": [
+        "POST /token"
+      ],
+      "acceptance_criteria": [
+        "POST /token with an unknown disposable username and password returns HTTP 401."
+      ]
+    },
+    {
+      "id": "LAB-MENU",
+      "title": "Public menu",
+      "track": "functional",
+      "endpoints": [
+        "GET /menu"
+      ],
+      "acceptance_criteria": [
+        "GET /menu returns HTTP 200 and a JSON array conforming to the declared response schema; an empty menu is valid."
+      ]
+    },
+    {
+      "id": "LAB-AUTH",
+      "title": "Missing profile authentication",
+      "track": "security-target",
+      "endpoints": [
+        "GET /profile"
+      ],
+      "acceptance_criteria": [
+        "GET /profile without credentials returns HTTP 401."
+      ]
+    },
+    {
+      "id": "LAB-PROFILE",
+      "title": "Protected profile fields",
+      "track": "security-target",
+      "endpoints": [
+        "PATCH /profile",
+        "GET /profile"
+      ],
+      "acceptance_criteria": [
+        "Attempts to change role through profile patch return a controlled 4xx or ignore the field.",
+        "After the attempted role change, a fresh GET /profile still reports the same caller username and Customer role."
+      ]
+    }
+  ]
+}

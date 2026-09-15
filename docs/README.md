@@ -13,7 +13,7 @@ Start with the [repository README](../README.md) for the live loop and one-comma
 | Configure your own live API project | [Bring your own API](../training/walkthroughs/03-bring-your-own-api.md) |
 | Edit runtime LLM instructions | [Editable prompts](../prompts/README.md) |
 | Invoke developer analysis from Codex, Claude Code or Copilot | [IDE agents and skills](ide-helpers.md) |
-| Run the Witness fixture or review its production journeys | [Witness example](../examples/the-witness/README.md) |
+| Set up and test the live vulnerable API example | [Damn Vulnerable RESTaurant](../examples/restaurant/README.md) |
 | Check current capabilities and remaining objectives | [Objective audit](agentic-objectives-audit.md), [implementation plan](implementation-plan.md) |
 | Distinguish regression, real-model and production evidence | [Validation](validation.md) |
 | Read the original findings in their historical context | [Archived initial audit](history/2026-09-14-initial-objectives-audit.md) |

@@ -34,12 +34,17 @@ test('developer patches are rolled back when source validation fails and logged 
   try {
     await mkdir(path.join(root,'app')); await writeFile(path.join(root,'app/service.js'),'const status = 500;\n');
     const { config } = await loadConfig('gauntlet.offline.config.json');
+    config.workflow = 'source-repair';
     config.sourceRepair = { root, include: ['app'], verifyCommand: [process.execPath,'--check','app/service.js'], restartCommand: [process.execPath,'-e','process.exit(0)'], maxAttempts: 3, commandTimeoutMs: 10000 };
     const contract = await loadContract(config.spec); const plan = buildPlan(contract,config);
     let replacement = '!!!';
     // Scripted provider is only a test double for patch validation, never runtime fallback.
     const provider: AgentProvider = { async invoke(role, model) { assert.equal(role,'developer'); return { agentId:'test',model,promptHash:'test',responseHash:'test',output:{hypothesis:'Status handling defect',edits:[{path:'app/service.js',oldText:'500',newText:replacement}]}}; } };
     const execution = { status:'test-failed', failures:[] } as unknown as ExecutionSummary;
+    config.workflow = 'tests-only';
+    await assert.rejects(repairSource(provider,config,contract,plan,execution,1,path.join(root,'disabled')), /SOURCE_REPAIR_DISABLED/);
+    assert.equal(await readFile(path.join(root,'app/service.js'),'utf8'),'const status = 500;\n');
+    config.workflow = 'source-repair';
     const failed = await repairSource(provider,config,contract,plan,execution,1,path.join(root,'failed'));
     assert.equal(failed.rollback,true); assert.equal(failed.policyDecision,'denied');
     assert.equal(await readFile(path.join(root,'app/service.js'),'utf8'),'const status = 500;\n');

@@ -1,5 +1,14 @@
 # Validation scope and recorded evidence
 
+## RESTaurant example and documentation refresh — 2026-09-15
+
+- TypeScript and **91 framework tests pass** after removing two retired application-example tests and adding workflow boundary coverage. Local Markdown files, anchors, JSON examples, npm entry points and the new setup script are checked against this checkout.
+- A fresh upstream `d32d09972aec7830f5f1d4a5d274cac7aae7eb82` checkout built successfully with the example Dockerfile and Compose overlay on `127.0.0.1:8092`. The existing app on 8091 was left unchanged. A missing C-header dependency discovered during the clean build was corrected in the Dockerfile.
+- Both services became healthy; doctor imported **21 operations**, and all **11 starter criteria** mapped to declared operations. Direct Playwright HTTP checks confirmed health/contract/menu 200 responses and profile 401 without credentials.
+- Automatic source/fixture detection found the fresh deployment. API-issued tokens authenticated two Customers, an Employee and a Chef with the expected profiles. The pagination fixture contained 101 orders; cleanup removed all six namespace-owned users with no retained referenced menu records. Local evidence: `.gauntlet/restaurant-example/setup-validation.json` (ignored).
+- Stop/resume commands were exercised with the dedicated database preserved; the verification lab was stopped afterward. The existing 8091 deployment remained running.
+- These are setup, contract and fixture checks, with no paid LLM calls. They do not establish discovery quality, full criterion acceptance or successful source repair on this fresh app. Earlier repaired-app runs below remain historical. See [setup and scope](../examples/restaurant/README.md).
+
 ## Editable runtime prompts — 2026-09-15
 
 - TypeScript and **92 automated tests pass**. Prompt checks cover reload without rebuilding, shared includes, literal capture placeholders, missing/empty/oversized files, invalid includes and installation-relative resolution.
@@ -42,12 +51,15 @@ Recorded local acceptance artifact: `.gauntlet/maintenance-live-1789398444733/ac
 | `npm run demo` | Deterministic generated-data drift repair | Loopback fixture requests |
 | `npm run maintenance:verify` | Real-model lifecycle, reuse and requirement-change rerun | Paid model calls plus disposable local health API |
 | `npm run agentic:verify` | Broader real-model sample exploration | Paid model calls plus disposable local users API |
-| Witness live commands | Target-specific preflight or hand-written production journey | See the separately gated [production walkthrough](../training/walkthroughs/05-the-witness-live-production.md) |
+| `npm run restaurant:setup` / `restaurant:doctor` | Fresh pinned lab deployment, contract import and configuration | GitHub, registry/package downloads, Docker and loopback contract retrieval; no LLM calls |
+| `npm run restaurant:run` | Real agents test the live local application | Paid model calls and scoped loopback API mutations |
 
-Clear model/target environment overrides before offline exercises. Live-model results and test counts can vary; inspect each new report and do not assume an earlier pass persists. Healthy fixture checks do not certify all API formats, complete scenario discovery, arbitrary product repairs, or production lookup/email delivery. A model verification result is evidence-backed review, not formal proof of completeness.
+Clear model/target environment overrides before offline exercises. Live-model results and test counts can vary; inspect each new report and do not assume an earlier pass persists. Healthy fixture checks do not certify all API formats, complete scenario discovery, arbitrary product repairs, or external provider side effects. A model verification result is evidence-backed review, not formal proof of completeness.
 
 ## Documentation verification — 2026-09-14
 
-The documentation review checked local Markdown links/anchors and JSON examples against the checkout, rebuilt the CLI, and ran TypeScript checks. Offline planning confirmed the inventory's 12 standalone cases plus one workflow, the context fixture's 20 standalone cases plus one workflow, and the Witness baseline's 19 covered operations out of 21.
+The documentation review checked local Markdown links/anchors and JSON examples against the checkout, rebuilt the CLI, and ran TypeScript checks. Offline planning confirmed the inventory's 12 standalone cases plus one workflow, the context fixture's 20 standalone cases plus one workflow.
 
 The inventory exercises were executed against disposable loopback servers: the normal run passed all 13 tests with score 100; the deliberately broken health schema produced 12 passes, one failure, zero skips and score 60. These checks correct the old serial-skip guidance. No paid-model or production journeys were rerun for the documentation review.
+
+Explicit workflow validation: tests-only overrides persisted source repair and ignores an unused source path; the source editor rejects calls in tests-only mode. Source-repair accepts a matching checkout and rejects a mismatched root or missing repair configuration. Existing patch rollback and accepted-edit checks also pass. These checks use isolated test providers; no additional paid model run was performed.

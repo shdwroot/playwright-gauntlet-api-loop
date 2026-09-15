@@ -1,3 +1,4 @@
+import { discoverSourceProject } from './source-project.js';
 import { azureResponsesUrl } from './azure.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -110,7 +111,22 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
   const model = (key: string, fallback?: string): string => modelOverride || (agentsRaw[key] === undefined && fallback ? fallback : requireString(agentsRaw, key));
   if (provider !== 'deterministic' && provider !== 'openai' && provider !== 'azure') throw new Error('CONFIG_INVALID: agents.provider must be deterministic, openai or azure');
 
+  const workflow = process.env.GAUNTLET_WORKFLOW || raw.workflow || 'tests-only';
+  if (workflow !== 'tests-only' && workflow !== 'source-repair') throw new Error('CONFIG_INVALID: workflow must be tests-only or source-repair');
+  const sourceRoot = process.env.GAUNTLET_API_SOURCE?.trim();
+  if (workflow === 'source-repair' && sourceRoot) {
+    if (raw.sourceRepair) {
+      const repair = requireRecord(raw, 'sourceRepair');
+      // Commands are scoped to this checkout; never silently transplant them.
+      if (path.resolve(root, requireString(repair, 'root')) !== path.resolve(root, sourceRoot)) throw new Error('SOURCE_ROOT_MISMATCH: GAUNTLET_API_SOURCE differs from sourceRepair.root; review and update the repair commands for the selected checkout');
+    } else {
+      raw.sourceRepair = await discoverSourceProject(process.env.GAUNTLET_BASE_URL?.trim() || requireString(raw, 'baseUrl'), path.resolve(root, sourceRoot));
+    }
+  }
+  if (workflow === 'source-repair' && !raw.sourceRepair) throw new Error('SOURCE_REPAIR_NOT_CONFIGURED: set GAUNTLET_API_SOURCE or configure sourceRepair');
+  if (workflow === 'source-repair' && provider === 'deterministic') throw new Error('SOURCE_REPAIR_REQUIRES_LIVE_AGENTS');
   const config: GauntletConfig = {
+    workflow,
     ...(raw.fixtures ? { fixtures: (() => {
       const fixtures = requireRecord(raw, 'fixtures');
       if (fixtures.adapter !== 'dvra' || !Array.isArray(fixtures.command) || fixtures.command.length === 0 || fixtures.command.some(v => typeof v !== 'string' || !v)) throw new Error('CONFIG_INVALID: fixtures adapter/command');
@@ -118,7 +134,7 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
       if (apiOrigin.protocol !== 'http:' || !['127.0.0.1','localhost','[::1]'].includes(apiOrigin.hostname) || apiOrigin.pathname !== '/' || apiOrigin.search || apiOrigin.hash || apiOrigin.username || apiOrigin.password) throw new Error('CONFIG_INVALID: fixtures.apiOrigin must be an HTTP loopback origin inside the API container');
       return { adapter: 'dvra' as const, command: fixtures.command as string[], apiOrigin: apiOrigin.origin };
     })() } : {}),
-    ...(raw.sourceRepair ? { sourceRepair: (() => {
+    ...(workflow === 'source-repair' && raw.sourceRepair ? { sourceRepair: (() => {
       const repair = requireRecord(raw, 'sourceRepair');
       const strings = (key: string): string[] => {
         const value = repair[key];

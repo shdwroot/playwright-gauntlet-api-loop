@@ -27,9 +27,9 @@ npm run gauntlet -- <command> [options]
 | `run` | `--config <path>`, `--watch`, `--inject-stale-data` | Generates, executes, critiques, and, when policy permits, heals and reruns the suite. `loop` is an accepted alias for `run`. |
 | `report` | `<run-id-or-directory>`, `--config <path>` | Prints the saved `result.json`. A bare run ID is resolved beneath the configured `artifactsDir`. |
 
-`doctor`, `discover`, `generate` and `run` also accept `--url`, repeated `--context`, `--project-dir`, `--model` and `--source auto|path`. With `--url`, onboarding fetches the contract from the target before the selected command; discovery/generation still do not execute test operations. See [automatic onboarding](../docs/autonomous-onboarding.md).
+`doctor`, `discover`, `generate` and `run` also accept `--url`, repeated `--context`, `--project-dir`, `--model` and `--workflow source-repair --source auto|path`. With `--url`, onboarding fetches the contract from the target before the selected command; discovery/generation still do not execute test operations. See [automatic onboarding](../docs/autonomous-onboarding.md).
 
-The default config path is `gauntlet.config.json` in the current directory; it uses live Luna agents. `discover` is a subcommand, not `--discover`. Append `--agentic --model MODEL_ID` to override all role models and enable live mode. `OPENAI_MODEL` is the fallback only with `--agentic`.
+The default config path is `gauntlet.config.json` in the current directory; it uses live Luna agents. `discover` is a subcommand, not `--discover`. Append `--agentic --model MODEL_ID` to override all role models and enable live mode. `--agentic` preserves Azure when selected. For OpenAI, `OPENAI_MODEL` is the fallback with `--agentic`; URL onboarding also uses it. For Azure, use deployment names and `AZURE_OPENAI_DEPLOYMENT`.
 
 Watch mode reports each run and continues monitoring. Use one-shot `run` for a CI exit code: stopping the watcher does not summarize prior run failures. `--inject-stale-data` applies to one-shot runs, not watch runs.
 
@@ -117,14 +117,17 @@ The `agents` object and both model names are required.
 
 | Field | Required | Default | Rules and effect |
 |---|---:|---:|---|
-| `provider` | Yes | None | `deterministic` keeps runs offline; `openai` uses six live roles as needed. |
+| `provider` | Yes | None | `deterministic` keeps runs offline; `openai` or `azure` uses six live roles plus the optional source-repair developer. |
 | `builderModel` | Yes | None | Model authors concrete requests, assertions and workflows; the deterministic compiler validates and renders them. |
-| `criticModel` | Yes | None | Model label or OpenAI model used for critic findings. Hard gates remain authoritative. |
+| `criticModel` | Yes | None | Model label, OpenAI model or Azure deployment used for critic findings. Hard gates remain authoritative. |
 | `discoveryModel`, `leadModel`, `healerModel` | No | `builderModel` | Role-specific model overrides. |
 | `verifierModel` | No | `criticModel` | Semantic/isolation reviewer. |
 | `timeoutMs` | No | `120000` | Per-model-call timeout in milliseconds. |
 | `openaiBaseUrl` | No | `https://api.openai.com` | Base URL used only by the OpenAI provider. |
-| `apiKeyEnv` | No | `OPENAI_API_KEY` | Name of the environment variable containing the OpenAI API key. |
+| `azureEndpoint` | For Azure unless env is set | `AZURE_OPENAI_ENDPOINT` | Azure resource URL or `/openai/v1/` base. |
+| `apiKeyEnv` | No | Azure: `AZURE_OPENAI_API_KEY`; otherwise `OPENAI_API_KEY` | Name of the model credential environment variable. |
+
+`GAUNTLET_AGENT_MODEL` takes precedence over `AZURE_OPENAI_DEPLOYMENT`; either overrides all role models. Leave both unset for separate configured Azure deployments. See [Azure setup](../docs/configuration.md#azure-openai).
 
 ### `quality`
 
@@ -171,9 +174,9 @@ The baseline planner is deterministic. Live builder additions and repairs can di
 | `authorization` | The operation is secured and declares `401`. | `401` with configured credentials intentionally omitted. |
 | `not-found` | The operation has a path parameter and declares `404`. | `404` using a deterministic missing identifier. |
 | `conflict` | The operation has a request body and declares `409`. | `409`, normally using `x-gauntlet-conflict-value`. |
-| `discovered` | An eligible deterministic source recipe or validated AI-authored case maps to a declared operation and response. | Declared OpenAPI status/content/schema; source evidence never supplies the oracle. |
+| `discovered` | An eligible deterministic source recipe or validated AI-authored case maps to a declared operation and response. | Declared response status/content/schema, including separately traced explicit requirement supplements; observed responses never redefine the oracle. |
 
-Each workflow becomes one serial Playwright test, even when it performs several requests. The live request budget counts main steps, cleanup and reset hooks. OpenAPI-extension final delete steps are ordinary main steps, not failure-path cleanup; agent workflows expose explicit `cleanupSteps`.
+Each workflow becomes one Playwright test, with sequential main steps except for explicitly bounded parallel groups. The live request budget counts main steps, cleanup and reset hooks. OpenAPI-extension final delete steps are ordinary main steps, not failure-path cleanup; agent workflows expose explicit `cleanupSteps`.
 
 ## Runtime assertions
 
@@ -184,10 +187,12 @@ For every generated case, the worker:
 3. Sends the request with `failOnStatusCode: false` so the contract controls acceptance.
 4. Attaches a redacted request/response exchange.
 5. Checks status, declared content type, and the supported JSON Schema subset.
-6. Checks typed scenario assertions: equals, not-equals, length-equals, contains, gte and lte.
+6. Checks typed scenario assertions: equality/inequality, presence/absence, length comparisons, contains and numeric bounds, with the appropriate body/header/fixture/parallel target.
 7. For positive object requests, checks matching response fields round-trip unchanged.
 
 The schema checker covers object properties and required fields, `additionalProperties: false`, arrays and item counts, string length/pattern and email format, numeric bounds, enums, constants, nullability, `allOf`, `anyOf`, and `oneOf`.
+
+Body assertion paths accept JSON Pointer as well as supported `$.field` paths. Header assertions use normalized, case-insensitive names. `json-equals` authors exact structured values; the compiler parses the literal before execution. Source-permitted alternative outcomes retain each response schema, and branch-specific assertions can count toward coverage only when that branch ran in a passing test. Bounded parallel groups support 2–8 consecutive main steps, aggregate request/success counts, and cleanup after all requests settle. See [the agentic guide](../docs/agentic-loop.md) for the proposal protocol and limits.
 
 ## Critic score and hard gates
 
@@ -248,6 +253,12 @@ Not every mode or attempt emits every optional file. Offline generation stores `
 `analysis.md` consolidates history; `result.json` is the terminal summary. `scenario-ledger.json` records implementation links; `coverage-backlog.json` records verification/reconciliation state. Do not treat either a link or an execution score as exhaustive coverage.
 
 Cross-run state lives in `<artifactsDir>/.maintenance/<generated-directory-hash>/`: `latest.json`, `history/`, `validated-plan.json` for successful plans, and a live `coverage-backlog.json`. Locks live at `<generatedDir>/.maintenance.lock`; after a crash, verify the process has stopped before removing a stale lock.
+
+## Editable prompts and IDE helpers
+
+Runtime instructions live in [prompts/](../prompts/README.md); changes load without a rebuild and participate in live context revisions. The audit records assembled role/transport instructions. Output schemas and validation remain code-owned. [IDE helpers](../docs/ide-helpers.md) are separately callable from Codex, Claude Code and Copilot.
+
+The [RESTaurant live example](../examples/restaurant/README.md) documents `restaurant:setup`, `restaurant:doctor`, `restaurant:run`, watch, optional source repair and cleanup. These wrappers keep the example target isolated from the default offline fixtures.
 
 ## Related
 

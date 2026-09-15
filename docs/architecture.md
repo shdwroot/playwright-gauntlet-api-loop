@@ -59,7 +59,7 @@ A verifier may block semantic or isolation gaps. Its proof choices are schema-co
 
 ## State and persistence
 
-A revision combines spec/source/config content, effective configuration and compiled framework module hashes. A compiled candidate from a completed run is reusable as builder input only for the same revision, and even then discovery and execution run again. A failed candidate is never treated as a passing result. Changed revisions regenerate tests; semantic obligations persist and can be explicitly reconciled to freshly verified replacements. Unresolved removals stay visible.
+A revision combines spec/source/config content, effective configuration, editable live prompt hashes and compiled framework module hashes. A compiled candidate from a completed run is reusable as builder input only for the same revision, and even then discovery and execution run again. A failed candidate is never treated as a passing result. Changed revisions regenerate tests; semantic obligations persist and can be explicitly reconciled to freshly verified replacements. Unresolved removals stay visible.
 
 Locks serialize writers to a generated directory. Watch mode coalesces changes and schedules a new run after the active one completes; mid-run context drift invalidates acceptance. It does not schedule periodic target-only checks, automatically retry unchanged failures, reload existing `.env` values, or recover stale locks after crashes.
 
@@ -72,3 +72,9 @@ Manifest hashes detect generated-file drift; they are not cryptographic signatur
 Standalone tests continue after another standalone failure; main steps within a workflow stop at the first failure. Agent-authored cleanup still runs afterward, attempting later cleanup steps even if one fails. Available response captures are collected before assertions so a successfully created resource can be cleaned up after an assertion fails. Missing captures or cleanup failures remain errors.
 
 Configured reset hooks run before and after each independent unit and consume the request budget. Serial execution alone is not isolation. See the [configuration guide](configuration.md#optional-test-environment-reset) for the sample-specific reset and its limits.
+
+## Live example boundary
+
+[RESTaurant](../examples/restaurant/README.md) is an optional upstream application managed by a separate Compose project. Its setup helper pins source, binds only loopback and keeps source/data/evidence ignored. The same generic CLI and agent runtime execute its tests. The tiny users/inventory fixtures remain offline teaching and regression tools.
+
+The repair boundary is explicit: `--workflow tests-only` (default) disables API source editing, while `--workflow source-repair` enables the configured developer repair path. Set `GAUNTLET_API_SOURCE` to the API checkout. See [workflow configuration](configuration.md#repair-workflows-and-api-source-checkout) for precedence, deployment commands and evidence.

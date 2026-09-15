@@ -72,7 +72,7 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
         history, latestError,
         remainingExecutions: config.maxIterations - iterations,
         remainingRequests: config.safety.maxRequestsPerRun - requests,
-        sourceRepair: config.sourceRepair ? { available: true, remainingAttempts: config.sourceRepair.maxAttempts - heals.filter(h => h.classification === 'product-defect').length,
+        sourceRepair: config.workflow === 'source-repair' && config.sourceRepair ? { available: true, remainingAttempts: config.sourceRepair.maxAttempts - heals.filter(h => h.classification === 'product-defect').length,
           instruction: 'Choose heal for evidenced product defects: a developer agent can patch API implementation, validate, restart and rerun the unchanged plan.' } : { available: false },
       }, allowedActions);
       await ledger.write(`agents/lead-${turn}.json`, decision.invocation);
@@ -133,7 +133,7 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
             verdict: verdict ? { ...verdict, invocation: undefined, findings: verdict.findings.map(({ code, severity, message }) => ({ code, severity, message })) } : undefined,
             latestError, history });
           await ledger.write(`agents/healer-${turn}.json`, repaired.invocation);
-          if (repaired.classification === 'product-defect' && config.sourceRepair && execution
+          if (repaired.classification === 'product-defect' && config.workflow === 'source-repair' && config.sourceRepair && execution
             && iterations < config.maxIterations
             && heals.filter(h => h.classification === 'product-defect').length < config.sourceRepair.maxAttempts) {
             await ledger.record('HEAL', iterations, 'Developer agent repairing API source; test expectations remain unchanged.');

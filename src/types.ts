@@ -288,7 +288,10 @@ export interface AgentConfig {
   apiKeyEnv?: string;
 }
 
+export type WorkflowMode = 'tests-only' | 'source-repair';
+
 export interface GauntletConfig {
+  workflow?: WorkflowMode;
   fixtures?: { adapter: 'dvra'; command: string[]; apiOrigin?: string };
   sourceRepair?: {
     root: string;
@@ -412,6 +415,7 @@ export interface HealAudit {
 }
 
 export interface RunResult {
+  workflow?: WorkflowMode;
   coverage?: import('./coverage.js').CoverageBacklog;
   runId: string;
   status: 'PASSED' | 'FAILED' | 'BLOCKED' | 'STALLED';

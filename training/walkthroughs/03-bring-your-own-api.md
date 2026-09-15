@@ -3,10 +3,10 @@
 The quickest path is to provide the API contract URL and context:
 
 ```bash
-npm run gauntlet -- run --url http://127.0.0.1:8091/openapi.json --context context/requirements.json --source auto
+npm run gauntlet -- run --url http://127.0.0.1:8091/openapi.json --context context/requirements.json --workflow source-repair --source auto
 ```
 
-Gauntlet imports the contract, discovers scenarios with Luna, generates and executes Playwright tests, attempts configured repairs and writes a report. Add `--watch` to repeat when the original context changes. `--source auto` enables source repair only for supported local Compose projects; omit it when testing without an application checkout. Repeat `--context` for additional files or directories. See [automatic onboarding](../../docs/autonomous-onboarding.md) for fixture/deployment adapter scope.
+Gauntlet imports the contract, discovers scenarios with Luna, generates and executes Playwright tests, attempts configured repairs and writes a report. Add `--watch` to repeat when the original context changes. `--workflow source-repair --source auto` enables source repair only for supported local Compose projects; use `--workflow tests-only` when testing without source editing. Repeat `--context` for additional files or directories. See [automatic onboarding](../../docs/autonomous-onboarding.md) for fixture/deployment adapter scope.
 
 The remaining steps describe manual configuration for environments that need custom authentication, isolation or deployment commands.
 
@@ -242,3 +242,5 @@ Open the failing exchange and compare the response with the immutable contract. 
 - [Framework reference](../reference.md)
 - [Configuration](../../docs/configuration.md)
 - [Architecture](../../docs/architecture.md)
+
+For a complete application setup before bringing your own API, follow the [RESTaurant live exercise](05-restaurant-live.md). Runtime [prompts](../../prompts/README.md), [Azure provider configuration](../../docs/configuration.md#azure-openai), and [IDE analysis helpers](../../docs/ide-helpers.md) apply to any supported API project.

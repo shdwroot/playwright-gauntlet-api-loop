@@ -127,7 +127,7 @@ This order prevents two common mistakes: treating an unreachable API as a schema
 
 ## What you learned
 
-This offline exercise proves restoration of generated files to the trusted candidate. Live agents can also repair generated request/setup implementations and narrowly defined malformed array comparisons using execution evidence. With configured source access, a developer role can repair the API itself and rerun unchanged tests; see [source repair](../../docs/autonomous-onboarding.md#api-source-repair). Neither mode may rewrite an authoritative expectation to match a product defect.
+This offline exercise proves restoration of generated files to the trusted candidate. Live agents can also repair generated request/setup implementations and narrowly defined malformed array comparisons using execution evidence. A source-permitted outcome correction can fix an overrestricted agent-created oracle while preserving the request, assertion values and original response schemas. With configured source access, a developer role can repair the API itself and rerun unchanged tests; see [source repair](../../docs/autonomous-onboarding.md#api-source-repair). Neither mode may rewrite an authoritative expectation to match a product defect.
 
 Next: [Walkthrough 3: bring your own API](03-bring-your-own-api.md).
 

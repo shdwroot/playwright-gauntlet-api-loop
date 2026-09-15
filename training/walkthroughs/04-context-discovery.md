@@ -7,7 +7,7 @@ This walkthrough adds operational context without handing authority to that cont
 
 ## The authority rule
 
-Keep this sentence in view: **logs and documents explain what may be worth testing; OpenAPI alone defines what the test expects.**
+Keep this sentence in view: **In this offline fixture, logs and documents suggest tests and OpenAPI defines expectations.** The live loop can additionally accept explicit structured requirements as separately traced supplemental oracles; it does not turn an observed failure into a passing expectation.
 
 That separation prevents three dangerous shortcuts:
 

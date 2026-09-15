@@ -100,6 +100,7 @@ export async function applySourceEdits(config: RepairConfig, original: Record<st
 }
 
 export async function repairSource(provider: AgentProvider, config: GauntletConfig, contract: NormalizedContract, plan: TestPlan, execution: ExecutionSummary, iteration: number, evidenceDir: string, feedback?: unknown): Promise<HealAudit> {
+  if (config.workflow !== 'source-repair') throw new Error('SOURCE_REPAIR_DISABLED: select the source-repair workflow');
   const repair = config.sourceRepair;
   if (!repair) throw new Error('SOURCE_REPAIR_NOT_CONFIGURED');
   const root = await realpath(repair.root);

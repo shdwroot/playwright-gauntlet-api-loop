@@ -1,0 +1,10 @@
+# Local harness for the pinned upstream API. No application source is vendored.
+FROM python:3.10-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev libpq-dev sudo && rm -rf /var/lib/apt/lists/*
+COPY requirements.lock.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+WORKDIR /app
+COPY app/ /app/
+# Preserve the upstream in-container filesystem challenge, without host privileges.
+RUN useradd --create-home app && chown app /app && echo 'ALL ALL=(ALL) NOPASSWD: /usr/bin/find' > /etc/sudoers.d/find_nopasswd && chmod 440 /etc/sudoers.d/find_nopasswd
+USER app

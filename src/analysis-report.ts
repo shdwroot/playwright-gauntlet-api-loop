@@ -46,7 +46,7 @@ export async function writeAnalysisReport(result: RunResult, context: unknown = 
   const scenarios = scenarioLedger(discovery, plan);
   const gaps = scenarios.filter(item => item.disposition === 'unimplemented');
   const report = redactAgentData({ formatVersion: 1, runId: result.runId, status: result.status,
-    executionScore: result.finalScore, context, scenarios, gaps, attempts, coverage: result.coverage,
+    workflow: result.workflow ?? 'tests-only', executionScore: result.finalScore, context, scenarios, gaps, attempts, coverage: result.coverage,
     finalFindings: result.findings, repairs: result.heals, events: result.events, usage,
     limitations: ['Scenario linkage establishes implemented coverage, not proof that an assertion captures every intended business rule.',
       'Changed obligations require explicit model reconciliation to freshly verified replacements; ambiguous removals stay blocked.',
@@ -54,6 +54,7 @@ export async function writeAnalysisReport(result: RunResult, context: unknown = 
   await atomicWrite(path.join(result.runDir, 'analysis.json'), stableStringify(report));
   const safe = (value: unknown) => String(value ?? '').replaceAll('|', '\\|').replaceAll('\n', ' ');
   const lines = [`# API Gauntlet analysis: ${result.runId}`, '', `Status: **${result.status}**. Execution score: ${result.finalScore}.`, '',
+    `Workflow: **${result.workflow ?? 'tests-only'}**. ${result.workflow === 'source-repair' ? 'Scoped API source repairs are enabled; inspect repair diffs and subsequent execution below.' : 'API source editing is disabled. Product defects remain findings.'}`, '',
     `Discovered scenarios: ${scenarios.length}. Implemented: ${scenarios.filter(item => item.tests.length).length}. Unimplemented: ${gaps.length}.`, '',
     'An execution score is not a completeness score. Semantic verification is a model assessment supported by validated assertion references and fresh execution.', '',
     '## Persistent obligations', '', '| Scenario | Status | Review |', '| --- | --- | --- |',

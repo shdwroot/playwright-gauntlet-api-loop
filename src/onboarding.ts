@@ -83,13 +83,16 @@ export async function onboard(options: OnboardingOptions): Promise<string> {
   const provider = process.env.GAUNTLET_AGENT_PROVIDER ?? (previousAgents.provider === 'azure' ? 'azure' : 'openai');
   const model = options.model ?? process.env.GAUNTLET_AGENT_MODEL ?? (provider === 'azure' ? process.env.AZURE_OPENAI_DEPLOYMENT : process.env.OPENAI_MODEL);
   if (provider === 'azure' && !model && !previousAgents.builderModel) throw new Error('AGENT_MODEL_REQUIRED: set AZURE_OPENAI_DEPLOYMENT or use --model with your Azure deployment name');
-  const sourceRepair = options.source ? await discoverSourceProject(baseUrl, options.source) : undefined;
+  const workflow = process.env.GAUNTLET_WORKFLOW || previous.workflow || 'tests-only';
+  if (workflow !== 'tests-only' && workflow !== 'source-repair') throw new Error('CONFIG_INVALID: workflow must be tests-only or source-repair');
+  const requestedSource = options.source || (workflow === 'source-repair' && !previous.sourceRepair ? process.env.GAUNTLET_API_SOURCE?.trim() : undefined);
+  const sourceRepair = requestedSource ? await discoverSourceProject(baseUrl, requestedSource) : undefined;
   const fixtures = sourceRepair ? await discoverFixtures(sourceRepair,baseUrl) : undefined;
   const config = {
     projectName: contract.title, generatedDir: '.gauntlet/generated', artifactsDir: '.gauntlet/runs',
     seed: 42, maxIterations: 6, timeoutMs: 30_000, headersFromEnv: {},
     quality: { minimumScore: 95, minimumOperationCoverage: 1, minimumScenarioCoverage: 1, requireSemanticVerification: true, requireIsolationReview: true },
-    ...previous, spec: 'openapi.yaml', baseUrl,
+    ...previous, workflow, spec: 'openapi.yaml', baseUrl,
     safety: { maxRequestsPerRun: 2000, maxResponseBytes: 262144, ...(previous.safety as object ?? {}),
       allowedHosts: [url.hostname], allowedMethods: [...new Set(contract.operations.map(o => o.method))],
       allowDestructive: contract.operations.some(o => o.destructive), allowProduction: !local },

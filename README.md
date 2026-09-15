@@ -20,21 +20,19 @@ For a local API, supply its contract URL and requirements directly:
 npm run gauntlet -- run --url http://127.0.0.1:8080/openapi.json --context ./your-api/requirements.json --watch
 ```
 
-Replace the URL and context path with your API’s inputs. This imports context, discovers scenarios, writes and runs tests, attempts configured test repairs, reports the results, and repeats when context changes. Add `--source auto` for optional API source repair in a supported local Compose checkout. See [URL onboarding and source repair](docs/autonomous-onboarding.md) for adapter scope.
+Replace the URL and context path with your API’s inputs. This imports context, discovers scenarios, writes and runs tests, attempts configured test repairs, reports the results, and repeats when context changes. Add `--workflow source-repair --source auto` for optional API source repair in a supported local Compose checkout. See [URL onboarding and source repair](docs/autonomous-onboarding.md) for adapter scope.
 
-For the bundled sample, start its disposable API in another terminal:
-
-```bash
-node --env-file=.env fixtures/sample-api.mjs
-```
-
-Then use one command:
+For the live tutorial, start a fresh Damn Vulnerable RESTaurant lab:
 
 ```bash
-npm run gauntlet -- run --watch
+npm run restaurant:setup
+npm run restaurant:doctor
+npm run restaurant:run
 ```
 
-This runs now and reruns when configured context changes. Omit `--watch` for one run. The sample watches `context/`, resets fixture state before and after each independent test, and allows up to 400 API requests across execution attempts, including cleanup and reset hooks.
+Setup downloads and builds a pinned upstream checkout in an ignored directory. The last command runs real LLM agents against the disposable API. Add `-- --watch` for context-driven maintenance, or `-- --workflow source-repair --source auto` to enable scoped application repair. See [the full setup and live walkthrough](examples/restaurant/README.md), including alternate ports, model configuration, evidence and cleanup. If you already run an API on 8091, use another setup port or onboard that existing URL directly.
+
+The root `gauntlet.config.json` still targets the small users fixture used by framework regression exercises. Use `restaurant:*` for the live application example; plain `gauntlet -- run` does not automatically select it.
 
 For your API, follow [the setup walkthrough](training/walkthroughs/03-bring-your-own-api.md). Set `baseUrl` in your config or `GAUNTLET_BASE_URL` in the `.env` beside it. Configure the matching host/method policy; use reset hooks only for a declared reset operation in your own test environment. Exported values take precedence over `.env`.
 
@@ -106,5 +104,7 @@ See [validation scope and recorded evidence](docs/validation.md). These checks d
 - [Configuration and target setup](docs/configuration.md)
 - [Architecture](docs/architecture.md)
 - [Offline crash course](training/README.md) and [command/configuration reference](training/reference.md)
-- [The Witness example](examples/the-witness/README.md) and its separately gated [production walkthrough](training/walkthroughs/05-the-witness-live-production.md)
+- [Damn Vulnerable RESTaurant live example](examples/restaurant/README.md) and [guided exercise](training/walkthroughs/05-restaurant-live.md)
 - [Attribution](NOTICE.md)
+
+Choose `--workflow tests-only` to repair tests and report API defects, or `--workflow source-repair` to also repair a configured API checkout. Set `GAUNTLET_API_SOURCE` in `.env` to that local repository path. [Workflow configuration](docs/configuration.md#repair-workflows-and-api-source-checkout) explains source scope and deployment commands.

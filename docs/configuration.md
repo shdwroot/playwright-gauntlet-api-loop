@@ -31,7 +31,7 @@ The root config uses six live Luna roles. `gauntlet.offline.config.json` and the
 | `agents.openaiBaseUrl` | OpenAI-compatible model endpoint; separate from the target API's `baseUrl` |
 | `agents.azureEndpoint` | Azure resource URL or `/openai/v1/` base; overridden by `AZURE_OPENAI_ENDPOINT` |
 
-`--agentic --model MODEL_ID` preserves Azure when selected, otherwise selects OpenAI live mode and overrides all role models for that invocation. `OPENAI_MODEL` supplies the model only when `--agentic` is used without `--model`. `GAUNTLET_AGENT_PROVIDER` and `GAUNTLET_AGENT_MODEL` directly override provider/model configuration; clear them when switching to offline exercises. There is no silent fallback from a failed model call to a scripted agent.
+`--agentic --model MODEL_ID` preserves Azure when selected, otherwise selects OpenAI live mode and overrides all role models for that invocation. For OpenAI, `OPENAI_MODEL` supplies the fallback with `--agentic` or URL onboarding when `--model` is omitted; Azure uses deployment names instead. `GAUNTLET_AGENT_PROVIDER` and `GAUNTLET_AGENT_MODEL` directly override provider/model configuration; clear them when switching to offline exercises. There is no silent fallback from a failed model call to a scripted agent.
 
 ## Supporting context
 
@@ -108,3 +108,23 @@ The LLM endpoint is separate from the API being tested. Azure uses `POST /openai
 `GAUNTLET_AGENT_MODEL` overrides `AZURE_OPENAI_DEPLOYMENT`; either applies to all agent roles. For separate deployments, leave both unset and set the role model fields in config. An explicit `--model` during URL onboarding or with `--agentic` overrides every role. Azure onboarding preserves the selected provider and role deployments when refreshed. `OPENAI_MODEL` does not select an Azure deployment.
 
 Choose an Azure deployment supporting both Responses and structured JSON-schema output. All live discovery, management, building, verification, critique, healing and configured developer calls use Azure; quality gates, evidence retention and retry limits are unchanged. Provider failures never select offline agents. `npm run agentic:verify` and `npm run maintenance:verify` also honor Azure configuration and make paid calls when run.
+
+## Repair workflows and API source checkout
+
+`workflow` is `tests-only` by default, including older configs with a `sourceRepair` section. Set `GAUNTLET_WORKFLOW` or pass `--workflow` to override it (CLI wins). URL onboarding saves the selected mode; config-based CLI overrides apply to that invocation. The console, doctor, result JSON and analysis report identify the effective mode.
+
+```dotenv
+GAUNTLET_WORKFLOW=tests-only
+GAUNTLET_API_SOURCE=/absolute/path/to/your-api-repo
+```
+
+The source variable identifies a **local API repository checkout**, separate from `GAUNTLET_BASE_URL`. It is not a Git remote URL and does not clone a repository. Use an absolute path. Tests-only ignores this source setting and disables the developer source editor even if earlier runs retained repair configuration. It still executes API requests, including configured mutations and fixture setup; it is not a read-only HTTP mode. API defects remain failures/findings rather than being hidden by weakened tests.
+
+```bash
+npm run gauntlet -- run --config path/to/gauntlet.config.json --workflow tests-only
+npm run gauntlet -- run --config path/to/gauntlet.config.json --workflow source-repair
+```
+
+Source-repair requires live agents and scoped `sourceRepair` configuration: `root`, `include`, `verifyCommand`, `restartCommand`, and optional attempt/time limits. A supported loopback Python Compose app can infer these from `GAUNTLET_API_SOURCE`, or from `--source auto|path` during URL onboarding. Other APIs need owner-configured commands; a source path alone cannot tell Gauntlet how to validate and redeploy an arbitrary application. Commands are argument arrays executed in the source root. Verification should include the application's relevant checks. An environment path differing from an existing configured root fails with `SOURCE_ROOT_MISMATCH`; review that checkout's commands before updating the config.
+
+Source-repair can repair test implementation defects and evidenced API defects. Source edits are scoped, diffed, verified and restarted; failed verification triggers rollback. The failing test plan is retained for the next execution. Inspect `attempts/*/source-heal.json` and linked diff/validation evidence to distinguish an API repair from a test repair. Neither mode promises that every failure can be repaired.

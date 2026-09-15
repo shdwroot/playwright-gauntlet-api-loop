@@ -82,6 +82,7 @@ export async function maintainRun(config: GauntletConfig, configPath: string | u
     const backlogPath = path.join(stateDir, 'coverage-backlog.json');
     const previousBacklog = await optionalJson<CoverageBacklog>(backlogPath);
     const result = await execute(reusable, previousBacklog);
+    result.workflow = config.workflow ?? 'tests-only';
     let after: ContextSnapshot | undefined;
     let contextError: string | undefined;
     try { after = await snapshotContext(config, configPath); }

@@ -1,6 +1,0 @@
-POST /v1/auth/signup returned 400 for malformed JSON input.
-POST /v1/auth/signup returned 409 for a duplicate account conflict.
-GET /v1/auth/session returned 401 when authorization was missing.
-POST /v1/cases returned 400 when the title contained whitespace only.
-GET /v1/cases/00000000-0000-4000-8000-000000000099 returned 404 for a missing resource.
-GET /v1/lookups/00000000-0000-4000-8000-000000000099 returned 404 for a missing resource.

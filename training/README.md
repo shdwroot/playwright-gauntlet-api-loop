@@ -1,6 +1,6 @@
 # Offline Playwright API Gauntlet crash course
 
-In about 20 minutes, you will run a complete contract-to-evidence loop, inspect the generated cases, see a safe self-heal, and learn how to point the framework at another API. The included inventory project is loopback-only and uses no paid model or browser.
+In about 20 minutes, you will run a complete contract-to-evidence loop, inspect the generated cases, see a safe self-heal, and learn how to point the framework at another API. The included inventory project is loopback-only and uses no paid model or browser. Walkthrough 5 then moves to a real, locally deployed vulnerable API with live LLM calls.
 
 ## What you need
 
@@ -89,7 +89,7 @@ The generated directory and run evidence are ignored by Git. Regenerate them ins
 2. [Walkthrough 2: evidence and safe healing](walkthroughs/02-evidence-and-healing.md)
 3. [Walkthrough 3: bring your own API](walkthroughs/03-bring-your-own-api.md)
 4. [Walkthrough 4: logs and documents](walkthroughs/04-context-discovery.md)
-5. [Walkthrough 5: The Witness live production journey](walkthroughs/05-the-witness-live-production.md)
+5. [Walkthrough 5: Damn Vulnerable RESTaurant live loop](walkthroughs/05-restaurant-live.md)
 6. [Framework reference](reference.md)
 7. [Architecture and trust boundaries](../docs/architecture.md)
 

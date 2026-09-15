@@ -24,6 +24,10 @@ Usage:
   api-gauntlet run --url <API-or-OpenAPI-URL> [--context path ...] [--source auto|path] [--project-dir path] [--model model]
   api-gauntlet report <run-id-or-directory> [--config path]
 
+Workflows: --workflow tests-only (default) or --workflow source-repair.
+Source repair requires GAUNTLET_API_SOURCE (local checkout) or configured sourceRepair commands.
+--source auto|path discovers a supported local Compose checkout; it does not enable editing by itself.
+
 Agentic mode: append --agentic --model <model-id> (or set OPENAI_MODEL). Requires the configured API key (OPENAI_API_KEY by default).
 Config agents.provider=openai or azure also enables agentic mode, with separate role models.
 
@@ -36,6 +40,11 @@ async function main(): Promise<void> {
   const command = args[0] ?? 'help';
   let configPath = option(args, '--config');
   loadProjectEnvironment(configPath);
+  if (args.includes('--workflow')) {
+    const workflow = option(args, '--workflow');
+    if (workflow !== 'tests-only' && workflow !== 'source-repair') throw new Error('CONFIG_INVALID: --workflow must be tests-only or source-repair');
+    process.env.GAUNTLET_WORKFLOW = workflow;
+  }
   const url = option(args, '--url');
   if (url) {
     if (configPath) throw new Error('Choose --url or --config, not both');
@@ -56,6 +65,7 @@ async function main(): Promise<void> {
   }
   if (['discover', 'generate', 'run', 'loop'].includes(command)) {
     const { config } = await loadConfig(configPath);
+    console.error(`WORKFLOW: ${config.workflow}. API source: ${config.sourceRepair?.root ?? 'editing disabled'}`);
     console.error(config.agents.provider !== 'deterministic'
       ? `AGENTIC: live model calls enabled (discovery, lead, builder, verifier, critic, healer as needed). Model: ${config.agents.builderModel}`
       : 'OFFLINE: deterministic fixture mode; no LLM calls. Use --agentic --model <model-id> for autonomous agents.');
@@ -67,7 +77,7 @@ async function main(): Promise<void> {
   if (command === 'doctor') {
     const { config } = await loadConfig(configPath);
     const contract = await loadContract(config.spec);
-    console.log(JSON.stringify({ ok: true, project: config.projectName, target: config.baseUrl, specHash: contract.specHash, operations: contract.operations.length, workflows: contract.workflows.length }, null, 2));
+    console.log(JSON.stringify({ ok: true, workflow: config.workflow, sourceRoot: config.sourceRepair?.root, project: config.projectName, target: config.baseUrl, specHash: contract.specHash, operations: contract.operations.length, workflows: contract.workflows.length }, null, 2));
     return;
   }
   if (command === 'discover') {
@@ -89,7 +99,7 @@ async function main(): Promise<void> {
           execute: async () => {
             if (configPath) await refreshOnboardedProject(configPath);
             const result = await runGauntlet(configPath ? { configPath } : {});
-            console.log(JSON.stringify({ status: result.status, runId: result.runId, report: path.join(result.runDir, 'analysis.md') }));
+            console.log(JSON.stringify({ status: result.status, workflow: result.workflow, runId: result.runId, report: path.join(result.runDir, 'analysis.md') }));
           },
           onError: error => console.error(errorMessage(error)),
         });
@@ -98,7 +108,7 @@ async function main(): Promise<void> {
     }
     const result = await runGauntlet({ ...(configPath ? { configPath } : {}), injectStaleData: args.includes('--inject-stale-data') });
     const blockers = result.findings.filter(finding => finding.severity === 'blocking');
-    console.log(JSON.stringify({ status: result.status, runId: result.runId, iterations: result.iterations, score: result.finalScore,
+    console.log(JSON.stringify({ status: result.status, workflow: result.workflow, runId: result.runId, iterations: result.iterations, score: result.finalScore,
       runDir: result.runDir, report: path.join(result.runDir, 'analysis.md'),
       hardFindings: blockers.map(finding => finding.code),
       reasons: [...new Set(blockers.map(finding => finding.message))],
