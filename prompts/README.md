@@ -12,7 +12,7 @@ Edit these Markdown files to change Gauntlet's LLM instructions. They are loaded
 | [healer.md](healer.md) | Diagnose failures and propose permitted test repairs |
 | [developer.md](developer.md) | Propose scoped API source repairs when configured |
 | [plan-protocol.md](plan-protocol.md) | Shared test-authoring and repair instructions |
-| [transport.md](transport.md) | Output-format instructions appended to every live invocation |
+| [transport.md](transport.md) | Shared trust/evidence rules and output-format instructions appended to every live invocation |
 
 Builder and healer include the shared protocol with `{{plan_protocol}}`. That is the only supported include, and nested includes are rejected. Capture placeholders such as `${runId}` and `${accessToken}` are preserved literally for the test compiler. Prompt contents are text, never executable JavaScript, shell commands or environment interpolation.
 
@@ -25,3 +25,11 @@ Each audited call saves the role `system`, `transportInstructions` and combined 
 Output JSON schemas, plan validation, request budgets, contract assertions and acceptance gates remain in TypeScript. Changing prose cannot add an unsupported schema field or bypass these checks. Runtime inputs such as the selected contract, coverage backlog, fixture capabilities and failure evidence are still assembled by code; they are context supplied to the editable prompts, not additional system-prompt files.
 
 IDE helpers are already external files. Their shared workflows remain in [.agents/skills](../.agents/skills/), with Claude Code and Copilot adapters in their native discovery folders. Edit those workflows for IDE-helper behavior; edit this folder for Gauntlet's runtime agents. See the [IDE helper guide](../docs/ide-helpers.md).
+
+## Role responsibilities and evaluation
+
+Every role receives the shared trust, evidence and capability rules in `transport.md`. Discovery separates supported expectations from inferred hypotheses and missing observability. Builder prioritizes the coverage worklist and meaningful assertions. Verifier checks complete behavior against its per-obligation proof catalog. Critic preserves deterministic blocking authority. Healer classifies failure ownership before permitted test repairs; developer proposes scoped implementation patches only when the runtime enables source repair. Lead selects an allowed next action and requires fresh evidence before acceptance.
+
+`plan-protocol.md` describes decoded plan semantics. The role output schema and `transport.md` define the actual JSON envelope, including typed request maps, `scenarioJson` and keyed verifier assessments. Keep both layers aligned when editing examples. Detailed framework constraints belong here; API-specific business rules belong in onboarding context.
+
+Use the [prompt evaluation cases](evaluation.md) to compare behavior before and after changes. Existing automated tests cover prompt loading, audit transport, context invalidation and deterministic enforcement; they do not measure how well a live model follows a rewritten instruction. The current revision passed those checks without a new paid-model evaluation. Do not claim improved discovery quality or complete coverage until a controlled live comparison supports it.

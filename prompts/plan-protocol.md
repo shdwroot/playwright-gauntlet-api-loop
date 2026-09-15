@@ -1,3 +1,7 @@
+# Normalized plan reference
+
+These examples describe the decoded plan. Follow the supplied JSON schema and transport envelope when emitting your response; do not copy a normalized request object into the wire response.
+
 Return JSON with cases (new standalone tests), workflows (new ordered tests), repairs (request changes to an existing generated caseId), coverageLinks, and riskNotes.
 A case is {id,title,operationId,status,rationale,request:{pathParams?,query?,headers?,body?,rawBody?,useAuth?},discoveryIds?:string[],assertions?:[{path:"$.bodyField",target?:"body|headers|fixture",operator:"equals|json-equals|not-equals|length-equals|length-lte|length-gte|contains|gte|lte|exists|not-exists",value:any,sourcePointer:"operation, nested contract pointer or referenced component pointer"}]}.
 For exact object or nested-array comparisons, use json-equals with a JSON-encoded object/array string as value; compilation parses it into an exact deep-equality assertion. Ordinary equals compares native values and never parses a string. Fixture orders/orderItems/coupons/usedCoupons are numeric COUNTS: use equals/gte/lte, never length operators. not-exists checks a missing property, not a removed route: a 404 can legitimately contain an error body. Assert the declared 404 status and specific absence of sensitive fields instead.
