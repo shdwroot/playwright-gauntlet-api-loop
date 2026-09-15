@@ -1,3 +1,4 @@
+import { discoveryContexts } from './agent-context.js';
 import { loadPrompt } from './prompts.js';
 import { createAgentProvider, type AgentProvider } from './agents.js';
 import { requirementCandidates } from './requirements.js';
@@ -277,10 +278,11 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
   for (const source of sources) warnings.push(...source.findings.map((finding) => `${source.sourcePath}:${finding}`));
   const analysis: NonNullable<DiscoveryReport['analysis']> = { mode: config.agents.provider !== 'deterministic' ? 'llm' : 'deterministic', invocations: [] };
   if (config.agents.provider !== 'deterministic') {
-    const input = { contract: { operations: contract.operations, document: contract.document, workflows: contract.workflows }, documents,
-      existingCandidates: candidates, maxCandidates: config.discovery.maxCandidates - candidates.length };
-    if (agentCharacters > (config.discovery.maxAgentInputCharacters ?? 200_000) || stableStringify(input).length > 900_000) throw new Error('DISCOVERY_AGENT_INPUT_LIMIT: narrow sources or raise discovery.maxAgentInputCharacters; no source text was silently truncated');
-    const invocation = await (provider ?? createAgentProvider(config.agents)).invoke('discovery', config.agents.discoveryModel ?? config.agents.builderModel,
+    const inputs=discoveryContexts(contract,documents,candidates,config);
+    if(inputs.length>1) warnings.push(`DISCOVERY_BATCHED: ${inputs.length} bounded contract/document slices; cross-slice relationships are not exhaustively certified.`);
+    const selectedProvider=provider ?? createAgentProvider(config.agents);
+    for(const input of inputs) {
+    const invocation = await selectedProvider.invoke('discovery', config.agents.discoveryModel ?? config.agents.builderModel,
       loadPrompt('discovery'),
       input);
     const output = record(redactAgentData(invocation.output), 'discovery response');
@@ -300,6 +302,8 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
         const citation = record(value, 'citation');
         const { sourceIndex, lineStart, lineEnd } = citation;
         if (!Number.isInteger(sourceIndex) || !Number.isInteger(lineStart) || !Number.isInteger(lineEnd)) throw new Error('DISCOVERY_CITATION_INVALID');
+        const supplied=(input.documents as typeof documents).find(d=>d.sourceIndex===sourceIndex);
+        if(!supplied || !supplied.lines.some(l=>l.number===lineStart) || !supplied.lines.some(l=>l.number===lineEnd)) throw new Error('DISCOVERY_CITATION_INVALID: citation is outside this batch');
         const source = sources[sourceIndex as number];
         const document = documents[sourceIndex as number];
         const cited = document?.lines.filter((line) => line.number >= (lineStart as number) && line.number <= (lineEnd as number));
@@ -315,6 +319,7 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
         contractPointers: operation ? [operation.sourcePointer] : [], evidence });
     }
     analysis.invocations.push({ ...invocation, output });
+    }
   } else {
     warnings.push('OFFLINE_DISCOVERY: deterministic pattern extraction only; no LLM analysis was performed.');
   }

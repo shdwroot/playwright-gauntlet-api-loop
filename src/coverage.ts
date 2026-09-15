@@ -1,3 +1,4 @@
+import { contextLimits, measureContext, shareContextSchemas, planContext, executionContext } from './agent-context.js';
 import { loadPrompt } from './prompts.js';
 import { FIXTURE_OBSERVATION_GUIDE } from './fixtures.js';
 import type { AgentProvider } from './agents.js';
@@ -88,15 +89,77 @@ export async function verifyCoverage(provider: AgentProvider, config: GauntletCo
   // model output on hundreds of identical gap assessments. Retain those full
   // obligations for reconciliation and report them as deterministic gaps below.
   const reviewable = required.filter(o => proofCatalog[o.id]!.length > 0);
-  const invocation = await provider.invoke('verifier', config.agents.verifierModel ?? config.agents.criticModel,
-    loadPrompt('verifier'),
-    { obligations: reviewable, unverifiedObligations: required.filter(o => !proofCatalog[o.id]!.length),
-      unverifiedInstruction: 'unverifiedObligations have no linked passing tests and remain gaps automatically. Do not produce assessments for them. You may reconcile a genuine semantic duplicate only against verified replacements that preserve every behavior, using their full criteria below.',
-      proofCatalog, plan: { ...plan, discovery: undefined },
-      fixtureObservations: config.fixtures ? FIXTURE_OBSERVATION_GUIDE : undefined,
-      fixtureLifecycle: config.fixtures ? 'The runner provisions fresh Customer A/B, Employee/Chef, menu items, an A-owned order and a separate paginationCustomer with 101 orders before every standalone case/workflow, then deletes only namespace-owned records and their descendants in finally. Fixture binding values are per-unit. Additional setup/cleanup inside a workflow may still be required for the scenario.' : undefined,
-      execution: { ...execution, failures: execution.failures?.map(({ title, messages }) => ({ title, messages })) } });
-  const output = invocation.output as { reconciliations?: Array<{ obligationId: string; replacementIds: string[]; reason: string }>; assessments?: Array<{ obligationId: string; verdict: string; reason: string; proofs: Array<{ testId: string; assertionPointers: string[] }> }>; isolation?: Array<{ unitId: string; verdict: string; reason: string }> };
+  type Review = { reconciliations?: Array<{ obligationId: string; replacementIds: string[]; reason: string }>; assessments?: Array<{ obligationId: string; verdict: string; reason: string; proofs: Array<{ testId: string; assertionPointers: string[] }> }>; isolation?: Array<{ unitId: string; verdict: string; reason: string }> };
+  const output: Required<Review> = { assessments: [], reconciliations: [], isolation: [] };
+  const invocations: import('./agents.js').AgentReply[] = [];
+  const batches: Array<{phase:string;obligationIds:string[];unitIds:string[];characters:number;status:string;error?:string}> = [];
+  const batchFindings: CriticFinding[] = [];
+  const limits = contextLimits(config.agents);
+  const system = loadPrompt('verifier');
+  const isolated = new Set<string>();
+  let halted: string | undefined;
+  const unitFor = (id: string) => plan.workflows.find(w => [...w.steps,...(w.cleanupSteps ?? [])].some(t => t.id === id))?.id ?? id;
+  const fixtureContext = config.fixtures ? {
+    fixtureObservations: FIXTURE_OBSERVATION_GUIDE,
+    fixtureLifecycle: 'The runner provisions fresh Customer A/B, Employee/Chef, menu items, an A-owned order and a paginationCustomer with 101 orders per standalone case/workflow; namespace-owned records are cleaned in finally. Values are per-unit. Scenario-specific preparation may still be needed. Fixture setup alone does not prove the API criterion.'
+  } : {};
+  async function dispatch(phase: string, obligations: CoverageObligation[], units: string[], unverified: CoverageObligation[] = [], replacements: CoverageObligation[] = []): Promise<void> {
+    const obligationIds = new Set(obligations.map(o => o.id));
+    const unitIds = new Set(units);
+    const isolationUnitIds = config.quality.requireIsolationReview ? units.filter(id => !isolated.has(id)) : [];
+    const state = shareContextSchemas({ phase, obligations, unverifiedObligations: unverified, verifiedReplacements: replacements,
+      unverifiedInstruction: 'Unverified criteria remain gaps. Reconcile only supplied unverified IDs to supplied freshly verified replacements, preserving every applicable behavior. No assessment may claim unseen evidence.',
+      proofCatalog: Object.fromEntries(obligations.map(o => [o.id,proofCatalog[o.id]])),
+      plan: planContext(plan,unitIds), isolationUnitIds,
+      ...fixtureContext, execution: executionContext(execution,unitIds),
+      evidenceScope: { planUnitsIncluded: units.length, planUnitsTotal: plan.cases.length + plan.workflows.length,
+        instruction: 'This is one bounded batch. Review only assigned obligations and isolationUnitIds. Other batches are merged by the runtime. Full evidence remains in the run artifacts.' },
+    });
+    const characters = measureContext('verifier',system,state).totalCharacters;
+    if (characters > limits.maxInputCharacters) {
+      if (obligations.length > 1) {
+        const middle=Math.ceil(obligations.length/2);
+        for (const half of [obligations.slice(0,middle),obligations.slice(middle)]) await dispatch(phase,half,[...new Set(half.flatMap(o => proofCatalog[o.id]!.map(t => unitFor(t.testId))))]);
+        return;
+      }
+      if (!obligations.length && units.length > 1) {
+        const middle=Math.ceil(units.length/2);await dispatch(phase,[],units.slice(0,middle));await dispatch(phase,[],units.slice(middle));return;
+      }
+      if (unverified.length > 1) {
+        const middle=Math.ceil(unverified.length/2);await dispatch(phase,[],[],unverified.slice(0,middle),replacements);await dispatch(phase,[],[],unverified.slice(middle),replacements);return;
+      }
+      if (replacements.length > 1) {
+        const middle=Math.ceil(replacements.length/2);await dispatch(phase,[],[],unverified,replacements.slice(0,middle));await dispatch(phase,[],[],unverified,replacements.slice(middle));return;
+      }
+      const error='VERIFIER_UNIT_TOO_LARGE: one indivisible review exceeds the context budget; criterion remains unverified';
+      batches.push({phase,obligationIds:[...obligationIds,...unverified.map(o=>o.id)],unitIds:units,characters,status:'oversized',error});
+      batchFindings.push({code:'VERIFIER_CONTEXT_GAP',severity:'blocking',message:error,evidence:[...obligationIds,...unverified.map(o=>o.id),...units]});return;
+    }
+    if (halted) { batches.push({phase,obligationIds:[...obligationIds,...unverified.map(o=>o.id)],unitIds:units,characters,status:'not-run',error:halted});return; }
+    try {
+      const invocation=await provider.invoke('verifier',config.agents.verifierModel ?? config.agents.criticModel,system,state);
+      invocations.push(invocation);
+      const result=invocation.output as Review;
+      output.assessments.push(...(result.assessments ?? []).filter(a=>obligationIds.has(a.obligationId)));
+      output.isolation.push(...(result.isolation ?? []).filter(a=>isolationUnitIds.includes(a.unitId)));
+      for (const id of isolationUnitIds) isolated.add(id);
+      output.reconciliations.push(...(result.reconciliations ?? []).filter(r=>unverified.some(o=>o.id===r.obligationId) && r.replacementIds?.length && r.replacementIds.every(id=>replacements.some(o=>o.id===id))));
+      batches.push({phase,obligationIds:[...obligationIds,...unverified.map(o=>o.id)],unitIds:units,characters,status:'completed'});
+    } catch (error) {
+      const message=error instanceof Error ? error.message : String(error);
+      batches.push({phase,obligationIds:[...obligationIds,...unverified.map(o=>o.id)],unitIds:units,characters,status:'failed',error:message});
+      batchFindings.push({code:'VERIFIER_BATCH_FAILED',severity:'blocking',message,evidence:[...obligationIds,...units]});
+      if (/BUDGET_EXHAUSTED|QUOTA_EXHAUSTED|CREDENTIAL_MISSING/.test(message)) halted=message;
+    }
+  }
+  for (let i=0;i<reviewable.length;i+=limits.reviewBatchSize) {
+    const batch=reviewable.slice(i,i+limits.reviewBatchSize);
+    await dispatch('semantic',batch,[...new Set(batch.flatMap(o=>proofCatalog[o.id]!.map(t=>unitFor(t.testId))))]);
+  }
+  if (config.quality.requireIsolationReview) {
+    const remaining=[...plan.cases.map(c=>c.id),...plan.workflows.map(w=>w.id)].filter(id=>!isolated.has(id));
+    for(let i=0;i<remaining.length;i+=limits.reviewBatchSize) await dispatch('isolation',[],remaining.slice(i,i+limits.reviewBatchSize));
+  }
   const findings: CriticFinding[] = [];
   for (const obligation of required) {
     const reviews = output?.assessments?.filter(a => a.obligationId === obligation.id) ?? [];
@@ -116,6 +179,13 @@ export async function verifyCoverage(provider: AgentProvider, config: GauntletCo
     if (assessment?.verdict === 'verified' && !valid) obligation.reason += ' Proof rejected: use linked step IDs, existing assertion pointers, and passing observations.';
     obligation.proofs = valid ? proofs : [];
   }
+  // Reconciliation is a separate bounded semantic comparison after replacement
+  // proofs have passed their deterministic checks. Explicit current requirement
+  // gaps are never waived as duplicates; stale criteria and unlinked LLM
+  // proposals may be mapped only to freshly verified replacement criteria.
+  const reconcile=required.filter(o=>o.status==='needs-review' || (o.status!=='verified' && o.candidate.origin==='llm' && !proofCatalog[o.id]?.length));
+  const verified=required.filter(o=>o.status==='verified');
+  for(let i=0;i<reconcile.length && verified.length;i+=limits.reviewBatchSize) await dispatch('reconciliation',[],[],reconcile.slice(i,i+limits.reviewBatchSize),verified);
   for (const obligation of required.filter(o => o.status !== 'verified')) {
     const matches = output?.reconciliations?.filter(r => r.obligationId === obligation.id) ?? [];
     const reconciliation = matches.length === 1 ? matches[0] : undefined;
@@ -133,5 +203,6 @@ export async function verifyCoverage(provider: AgentProvider, config: GauntletCo
       if (assessments.length !== 1 || assessments[0]?.verdict !== 'isolated') findings.push({ code: 'TEST_ISOLATION_GAP', severity: 'blocking', message: `${unitId}: ${assessments[0]?.reason ?? 'Missing isolation review'}`, evidence: [unitId] });
     }
   }
-  return { invocation, findings };
+  findings.push(...batchFindings);
+  return { invocation: invocations.at(-1), invocations, batches, findings };
 }

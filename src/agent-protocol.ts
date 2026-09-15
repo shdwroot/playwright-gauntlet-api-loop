@@ -26,7 +26,7 @@ const plan = object({
 export function agentOutputSchema(role: string, input?: unknown): unknown {
   if (role === 'developer') return object({ hypothesis: text, edits: array(object({ path: text, oldText: text, newText: text, occurrence:{type:'integer',minimum:0} })) });
   if (role === 'verifier') {
-    const state = input as { proofCatalog?: Record<string, Array<{ testId: string; assertionPointers: string[] }>>; obligations?: Array<{ id: string }>; plan?: { cases: Array<{ id: string }>; workflows: Array<{ id: string }> } } | undefined;
+    const state = input as { isolationUnitIds?: string[]; proofCatalog?: Record<string, Array<{ testId: string; assertionPointers: string[] }>>; obligations?: Array<{ id: string }>; plan?: { cases: Array<{ id: string }>; workflows: Array<{ id: string }> } } | undefined;
     const assessment = (id: string) => {
       const proofs = state?.proofCatalog?.[id] ?? [];
       const variants = proofs.map(proof => object({ testId: { type: 'string', enum: [proof.testId] }, assertionPointers: { ...array({ type: 'string', enum: proof.assertionPointers }), minItems: 1 } }));
@@ -36,7 +36,7 @@ export function agentOutputSchema(role: string, input?: unknown): unknown {
     const isolation = object({ verdict: { type: 'string', enum: ['isolated', 'risk'] }, reason: text });
     return object({ reconciliations: array(object({ obligationId: text, replacementIds: array(text), reason: text })),
       assessments: object(Object.fromEntries((state?.obligations ?? []).map(o => [o.id, assessment(o.id)]))),
-      isolation: object(Object.fromEntries([...(state?.plan?.cases ?? []), ...(state?.plan?.workflows ?? [])].map(u => [u.id, isolation]))) });
+      isolation: object(Object.fromEntries([...(state?.plan?.cases ?? []), ...(state?.plan?.workflows ?? [])].filter(u=>!state?.isolationUnitIds || state.isolationUnitIds.includes(u.id)).map(u => [u.id, isolation]))) });
   }
   if (role === 'builder' || role === 'healer') {
     const state = input as { minimumDiscoveryConfidence?: number; fixtures?:unknown; discovery?: { candidates?: Array<{id:string;confidence:number;disposition:string;operationId?:string}> };
@@ -61,13 +61,15 @@ export function agentOutputSchema(role: string, input?: unknown): unknown {
     bounded.properties.workflows.items.properties.steps.minItems = 1;
     const visit = (node: any): void => {
       if (!node || typeof node !== 'object') return;
-      if (node.properties?.discoveryIds && ids) node.properties.discoveryIds = ids.length ? array({type:'string',enum:ids}) : {...array(text),maxItems:0};
+      if (node.properties?.discoveryIds && ids) node.properties.discoveryIds = ids.length ? array({$ref:'#/$defs/eligibleDiscoveryId'}) : {...array(text),maxItems:0};
       if (node.properties?.target) node.properties.target = {type:'string',enum:state?.fixtures ? ['body','headers','fixture','parallel'] : ['body','headers','parallel']};
-      if (node.properties?.sourcePointer && pointers.length) node.properties.sourcePointer = {type:'string',enum:[...new Set(pointers)]};
+      if (node.properties?.sourcePointer && pointers.length) node.properties.sourcePointer = {$ref:'#/$defs/oracleSourcePointer'};
       for (const value of Object.values(node)) visit(value);
     };
     visit(bounded);
-    return role === 'builder' ? bounded : object({classification:{type:'string',enum:['test-implementation','product-defect','infrastructure','contract-gap']},hypothesis:text,changes:bounded});
+    const result = role === 'builder' ? bounded : object({classification:{type:'string',enum:['test-implementation','product-defect','infrastructure','contract-gap']},hypothesis:text,changes:bounded});
+    result.$defs = { ...(ids?.length ? {eligibleDiscoveryId:{type:'string',enum:ids}} : {}), ...(pointers.length ? {oracleSourcePointer:{type:'string',enum:[...new Set(pointers)]}} : {}) };
+    return result;
   }
   if (role === 'lead') return object({ action: { type: 'string', enum: (input as {allowedActions?:string[]} | undefined)?.allowedActions ?? ['build', 'execute', 'heal', 'accept', 'block'] }, reason: text });
   if (role === 'critic') return object({ decision: { type: 'string', enum: ['pass', 'fix', 'block'] }, findings: array(object({ code: text, severity: { type: 'string', enum: ['blocking', 'warning', 'info'] }, message: text, evidence: array(text) })) });

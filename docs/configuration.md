@@ -27,6 +27,11 @@ The root config uses six live Luna roles. `gauntlet.offline.config.json` and the
 | `discoveryModel`, `leadModel`, `healerModel` | Default to builder model |
 | `verifierModel` | Defaults to critic model |
 | `agents.timeoutMs` | Per-model-call timeout, default 120000 ms |
+| `agents.maxInputCharacters` | Complete per-call input, instructions and output-schema character cap; default `160000` |
+| `agents.maxRunInputCharacters` | Cumulative complete-context character budget across live roles; default `3000000` |
+| `agents.maxCalls` | Model invocation budget across live roles; default `60` |
+| `agents.maxOutputTokens` | Provider output-token cap per call; default `8000` |
+| `agents.reviewBatchSize` | Maximum criteria/operations assigned per review/build batch; default `8`, split further when needed |
 | `agents.apiKeyEnv` | Credential variable name; default `AZURE_OPENAI_API_KEY` for Azure, otherwise `OPENAI_API_KEY` |
 | `agents.openaiBaseUrl` | OpenAI-compatible model endpoint; separate from the target API's `baseUrl` |
 | `agents.azureEndpoint` | Azure resource URL or `/openai/v1/` base; overridden by `AZURE_OPENAI_ENDPOINT` |
@@ -52,6 +57,14 @@ Create the configured directory and add UTF-8 context before running. Sources ma
 Default extensions are `.json`, `.jsonl`, `.log`, `.md`, `.txt`, `.yaml`, `.yml`. PDF/DOCX extraction, WSDL/SOAP, Swagger 2 conversion and structured Gherkin are not implemented. A text export can provide context alongside the mandatory OpenAPI 3 contract; it does not become an authoritative replacement contract.
 
 Live discovery analyzes prose and observable API semantics. Deterministic extraction supports narrower method/path/status recipes; see the [offline discovery exercise](../training/walkthroughs/04-context-discovery.md). Observed statuses cannot replace declared expectations.
+
+## Bounded agent context
+
+Set these limits in the selected config’s `agents` object. No new command is needed. Discovery splits large contracts by operation and documents at original line boundaries; builder calls receive a small candidate worklist and relevant existing tests. The lead gets counts and a bounded pending-work overview. Verification batches linked passing proofs and reviews isolation separately where needed. Healer calls focus on complete failing units; critic inputs retain global counts and grouped findings. Repeated schemas are shared once within each model input. Full plans, original evidence and deterministic acceptance checks remain outside the model context.
+
+Batches are merged by criterion/test ID. A failed or oversized batch preserves completed reviews and leaves its criteria unverified. Current requirement gaps cannot be waived as duplicate proposals. Discovery retains original source indices and line numbers; `discovery.maxAgentInputCharacters` now limits source text per slice. A single oversized source line, atomic workflow, schema or source-repair unit may still block: narrow the configured source or adjust the limit deliberately. Cross-slice semantic relationships are not exhaustively certified.
+
+Run budgets are shared by the live provider across discovery, lead, builder, verifier, critic, healer and developer calls. They reset for each new run/provider instance, including watch reruns. Failed dispatched calls also consume the invocation/input allowance; bounded transport retries are part of that invocation. These character and call limits constrain spending but are **not a dollar cap or tokenizer estimate**. `maxOutputTokens` is sent to the provider; incomplete responses fail explicitly. The analysis report records provider-reported tokens by role and attempted/completed/failed calls. Input evidence records measured context sizes, including instructions and the structured response schema.
 
 ## Coverage and budgets
 

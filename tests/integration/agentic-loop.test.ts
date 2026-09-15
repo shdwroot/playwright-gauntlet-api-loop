@@ -106,7 +106,8 @@ test('agentic HTTP provider discovers prose, implements cases/workflows, repairs
   const { result, calls, plan } = await runFixture();
   assert.equal(result.status, 'PASSED', JSON.stringify(result.findings));
   assert.equal(result.iterations, 2);
-  assert.deepEqual(calls, ['discovery', 'lead', 'builder', 'lead', 'verifier', 'critic', 'lead', 'healer', 'lead', 'verifier', 'critic', 'lead']);
+  assert.deepEqual(calls.filter(c=>c!=='verifier'), ['discovery', 'lead', 'builder', 'lead', 'critic', 'lead', 'healer', 'lead', 'critic', 'lead']);
+  assert.ok(calls.filter(c=>c==='verifier').length >= 2);
   assert.equal(result.heals[0]?.classification, 'test-implementation');
   assert.equal(result.heals[0]?.policyDecision, 'auto');
   assert.deepEqual(plan.cases.find((item) => item.id === 'agent-last-page')?.expected.statuses, [200]);

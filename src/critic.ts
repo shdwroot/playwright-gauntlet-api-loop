@@ -1,3 +1,4 @@
+import { executionContext, planContext, shareContextSchemas } from './agent-context.js';
 import { loadPrompt } from './prompts.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -153,7 +154,11 @@ export class CriticAgent {
       + (integrity.valid && manifest.specHash === contract.specHash ? 10 : 0)
       + (!findings.some((item) => ['FORBIDDEN_TEST_CONTROL', 'TRACEABILITY_INVALID', 'ORACLE_PROVENANCE_INVALID', 'ORACLE_EXPECTATION_UNDECLARED', 'DISCOVERY_HASH_MISMATCH', 'DISCOVERY_SECRET_LEAK', 'INVALID_SOURCE_CITATION'].includes(item.code)) ? 10 : 0),
     );
-    const criticInput = {
+    const failedUnits = new Set([...plan.cases.map(c=>c.id),...plan.workflows.map(w=>w.id)].filter(id=>(execution.failures ?? []).some(f=>f.title.startsWith(`[${id}] `)||f.title.startsWith(`[workflow:${id}] `))).slice(0,4));
+    const findingGroups = [...new Set(findings.map(f=>f.code))].map(code=>{
+      const group=findings.filter(f=>f.code===code);return {code,severity:group.some(f=>f.severity==='blocking')?'blocking':group[0]!.severity,message:group[0]!.message,count:group.length};
+    });
+    const criticInput = shareContextSchemas({
       immutableTarget: {
         specHash: contract.specHash,
         operations: contract.operations.map((operation) => ({ operationId: operation.operationId, sourcePointer: operation.sourcePointer, statuses: operation.responses.map((response) => response.status) })),
@@ -168,9 +173,10 @@ export class CriticAgent {
       anonymousCandidate: {
         manifest,
         coverage,
-        execution,
-        plan: { ...plan, discovery: undefined },
-        deterministicFindings: findings.map(({ code, severity, message }) => ({ code, severity, message })),
+        execution: executionContext(execution,failedUnits),
+        plan: planContext(plan,failedUnits),
+        evidenceScope: {totalPlanUnits:plan.cases.length+plan.workflows.length,includedPlanUnits:failedUnits.size,artifacts:['plan.json','execution.json','verification.json'],instruction:'Focused failure examples plus complete deterministic finding-code counts. Omitted cases remain in artifacts and cannot be assumed passing. Runtime gates use the full results.'},
+        deterministicFindings: findingGroups,
         verifiedFacts: {
           artifactIntegrity: integrity.valid,
           specHashAligned: manifest.specHash === contract.specHash && plan.specHash === contract.specHash,
@@ -178,7 +184,7 @@ export class CriticAgent {
           oracleProvenanceChecked: !findings.some((item) => ['TRACEABILITY_INVALID', 'ORACLE_PROVENANCE_INVALID', 'ORACLE_EXPECTATION_UNDECLARED'].includes(item.code)),
         },
       },
-    };
+    });
     const invocation = await this.provider.invoke(
       'critic',
       config.agents.criticModel,

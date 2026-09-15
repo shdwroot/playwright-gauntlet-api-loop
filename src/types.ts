@@ -275,6 +275,11 @@ export interface AgentInvocation {
 }
 
 export interface AgentConfig {
+  maxInputCharacters?: number;
+  maxRunInputCharacters?: number;
+  maxCalls?: number;
+  maxOutputTokens?: number;
+  reviewBatchSize?: number;
   provider: 'deterministic' | 'openai' | 'azure';
   builderModel: string;
   criticModel: string;

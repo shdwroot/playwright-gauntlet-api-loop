@@ -114,8 +114,10 @@ test('builder transport excludes low-confidence IDs and invented provenance befo
     discovery: { candidates: [{id:'accepted',confidence:1,disposition:'report-only',operationId:'orders'},{id:'uncertain',confidence:0.8,disposition:'report-only',operationId:'orders'},{id:'unmapped',confidence:1,disposition:'report-only'}] },
     contract: {operations:[{sourcePointer:'/paths/~1orders/get'}]} }) as any;
   const authored = schema.properties.cases.items.properties;
-  assert.deepEqual(authored.discoveryIds.items.enum, ['accepted']);
-  assert.deepEqual(authored.assertions.items.properties.sourcePointer.enum, ['/paths/~1orders/get']);
+  assert.equal(authored.discoveryIds.items.$ref, '#/$defs/eligibleDiscoveryId');
+  assert.deepEqual(schema.$defs.eligibleDiscoveryId.enum, ['accepted']);
+  assert.equal(authored.assertions.items.properties.sourcePointer.$ref, '#/$defs/oracleSourcePointer');
+  assert.deepEqual(schema.$defs.oracleSourcePointer.enum, ['/paths/~1orders/get']);
   assert.ok(authored.assertions.items.properties.value);
   assert.equal(authored.assertions.items.properties.valueJson,undefined);
   assert.ok(authored.request.properties.bodyJson);

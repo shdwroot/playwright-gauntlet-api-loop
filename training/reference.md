@@ -76,7 +76,7 @@ Paths and automatic `.env` loading are relative to the selected config directory
 | `maxCandidates` | No | `5000` | Pre-deduplication signal ceiling; overflow fails instead of truncating. |
 | `maxCandidatesPerOperation` | No | `20` | Executable discovery expansion ceiling for one operation. |
 | `maxExcerptCharacters` | No | `512` | Deterministic redacted excerpt length stored with citations. |
-| `maxAgentInputCharacters` | No | `200000` | Bounded source text sent for live discovery; overflow fails rather than silently truncating. |
+| `maxAgentInputCharacters` | No | `200000` | Source text per live discovery slice; preserves original citation lines. An indivisible oversized line fails explicitly. |
 | `minimumConfidence` | No | `0.85` | `0..1` floor for executable consideration; lower-confidence signals remain report-only. |
 
 Each configured source appears in the source manifest. Missing sources, symlinks, path escapes, non-regular files, binary/NUL data, invalid UTF-8, unsupported extensions, mutation during read, and size/count overflow fail closed. Directories are traversed in sorted order with `.git`, `.gauntlet`, and `node_modules` excluded.
@@ -123,6 +123,11 @@ The `agents` object and both model names are required.
 | `discoveryModel`, `leadModel`, `healerModel` | No | `builderModel` | Role-specific model overrides. |
 | `verifierModel` | No | `criticModel` | Semantic/isolation reviewer. |
 | `timeoutMs` | No | `120000` | Per-model-call timeout in milliseconds. |
+| `maxInputCharacters` | No | `160000` | Per-call input plus instructions and response-schema character cap. |
+| `maxRunInputCharacters` | No | `3000000` | Cumulative complete-context budget per live run/provider instance. |
+| `maxCalls` | No | `60` | Live invocation budget; dispatched failures consume allowance. |
+| `maxOutputTokens` | No | `8000` | Provider output-token cap per call. |
+| `reviewBatchSize` | No | `8` | Criteria/operations per batch; oversized batches split further. |
 | `openaiBaseUrl` | No | `https://api.openai.com` | Base URL used only by the OpenAI provider. |
 | `azureEndpoint` | For Azure unless env is set | `AZURE_OPENAI_ENDPOINT` | Azure resource URL or `/openai/v1/` base. |
 | `apiKeyEnv` | No | Azure: `AZURE_OPENAI_API_KEY`; otherwise `OPENAI_API_KEY` | Name of the model credential environment variable. |

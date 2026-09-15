@@ -108,3 +108,5 @@ See [validation scope and recorded evidence](docs/validation.md). These checks d
 - [Attribution](NOTICE.md)
 
 Choose `--workflow tests-only` to repair tests and report API defects, or `--workflow source-repair` to also repair a configured API checkout. Set `GAUNTLET_API_SOURCE` in `.env` to that local repository path. [Workflow configuration](docs/configuration.md#repair-workflows-and-api-source-checkout) explains source scope and deployment commands.
+
+Agent context is bounded automatically: discovery and proof review are batched, repeated schemas are shared, and each live run has configurable call/input/output limits. Full evidence and unresolved criteria remain recorded. See [context and spending controls](docs/configuration.md#bounded-agent-context).

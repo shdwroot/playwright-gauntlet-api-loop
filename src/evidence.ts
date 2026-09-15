@@ -1,3 +1,4 @@
+import { contextLimits, measureContext } from './agent-context.js';
 import { loadPrompt } from './prompts.js';
 import type { AgentProvider } from './agents.js';
 import { redactAgentData } from './agent-redaction.js';
@@ -35,6 +36,7 @@ export class RunLedger {
       seed: this.config.seed,
       baseUrl: new URL(this.config.baseUrl).origin,
       agentProvider: this.config.agents.provider,
+      agentBudgets: contextLimits(this.config.agents),
       builderModel: this.config.agents.builderModel,
       criticModel: this.config.agents.criticModel,
     }));
@@ -84,7 +86,7 @@ export function auditedAgentProvider(underlying: AgentProvider, ledger: RunLedge
   return { async invoke(role, model, system, input, transportInstructions) {
     const transport = transportInstructions ?? loadPrompt('transport');
     const call = ++sequence;
-    await ledger.write(`agents/calls/${call}-${role}-input.json`, redactAgentData({ role, model, system, transportInstructions: transport, effectiveInstructions: `${system}\n${transport}`, input }));
+    await ledger.write(`agents/calls/${call}-${role}-input.json`, redactAgentData({ role, model, system, transportInstructions: transport, effectiveInstructions: `${system}\n${transport}`, context: measureContext(role,system,input,transport), input }));
     try {
       const reply = await underlying.invoke(role, model, system, input, transport);
       await ledger.write(`agents/calls/${call}-${role}-output.json`, redactAgentData(reply));

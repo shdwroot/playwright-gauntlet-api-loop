@@ -34,12 +34,21 @@ export async function writeAnalysisReport(result: RunResult, context: unknown = 
     const critic = await optionalJson<CriticVerdict>(path.join(result.runDir, `attempts/${iteration}/critic.json`));
     attempts.push({ iteration, ...(execution ? { execution } : {}), ...(critic ? { critic } : {}) });
   }
-  const usage = { calls: 0, inputTokens: 0, outputTokens: 0, durationMs: 0, callsWithoutUsage: 0 };
+  const usage = { attemptedCalls:0, failedCalls:0, contextCharacters:0, byRole:{} as Record<string,{completed:number;failed:number;inputTokens:number;outputTokens:number;contextCharacters:number}>, calls: 0, inputTokens: 0, outputTokens: 0, durationMs: 0, callsWithoutUsage: 0 };
   const callDir = path.join(result.runDir, 'agents/calls');
-  const files = await readdir(callDir).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return []; throw error; });
+  const files: string[] = await readdir(callDir).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return []; throw error; });
+  for(const name of files.filter(name=>name.endsWith('-input.json'))) {
+    const call=await optionalJson<{role:string;context?:{totalCharacters:number}}>(path.join(callDir,name));
+    const role=call?.role ?? 'unknown'; const row=usage.byRole[role] ??= {completed:0,failed:0,inputTokens:0,outputTokens:0,contextCharacters:0};
+    usage.attemptedCalls++;row.contextCharacters+=call?.context?.totalCharacters ?? 0;usage.contextCharacters+=call?.context?.totalCharacters ?? 0;
+    if(files.includes(name.replace('-input.json','-error.json'))) {usage.failedCalls++;row.failed++;}
+  }
   for (const name of files.filter(name => name.endsWith('-output.json'))) {
     const call = await optionalJson<{ usage?: { inputTokens: number; outputTokens: number }; durationMs?: number }>(path.join(callDir, name));
     usage.calls++; usage.durationMs += call?.durationMs ?? 0;
+    const role=name.replace(/^\d+-/,'').replace(/-output\.json$/,'');
+    const row=usage.byRole[role] ??= {completed:0,failed:0,inputTokens:0,outputTokens:0,contextCharacters:0};
+    row.completed++;row.inputTokens+=call?.usage?.inputTokens ?? 0;row.outputTokens+=call?.usage?.outputTokens ?? 0;
     if (call?.usage) { usage.inputTokens += call.usage.inputTokens; usage.outputTokens += call.usage.outputTokens; }
     else usage.callsWithoutUsage++;
   }
@@ -77,6 +86,9 @@ export async function writeAnalysisReport(result: RunResult, context: unknown = 
     ]), '',
     '## Final findings', '', ...result.findings.map(finding => `- ${finding.severity}: ${safe(finding.code)} — ${safe(finding.message)}`), '',
     '## Model usage', '', `${usage.calls} completed calls; ${usage.inputTokens} reported input tokens; ${usage.outputTokens} reported output tokens. ${usage.callsWithoutUsage} calls omitted token usage.`, '',
+    `${usage.attemptedCalls} agent invocations attempted; ${usage.failedCalls} failed or were rejected. Assembled context: ${usage.contextCharacters} characters (includes failed attempts; not a billed-token or dollar estimate).`, '',
+    '| Role | Completed | Failed/rejected | Input tokens | Output tokens | Context characters |', '| --- | --- | --- | --- | --- | --- |',
+    ...Object.entries(usage.byRole).map(([role,row])=>`| ${role} | ${row.completed} | ${row.failed} | ${row.inputTokens} | ${row.outputTokens} | ${row.contextCharacters} |`), '',
     '[Structured analysis and source citations](analysis.json) · [Final result](result.json)', ''];
   await atomicWrite(path.join(result.runDir, 'analysis.md'), String(redactAgentData(lines.join('\n'))));
   return { scenarios, reportPath: path.join(result.runDir, 'analysis.md') };
