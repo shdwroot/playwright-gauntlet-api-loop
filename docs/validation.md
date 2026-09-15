@@ -1,5 +1,12 @@
 # Validation scope and recorded evidence
 
+## Live prompt rerun and build progression — 2026-09-15
+
+- Real Luna calls exposed stale requirement-operation waiting reasons after authored tests existed. The plan now clears that specific stale reason when validated coverage is added, and three accepted build batches require execute-or-block. **93 framework tests and TypeScript checks pass**, including both regressions.
+- A tests-only continuation on the existing local RESTaurant lab executed **116 tests/workflows: 100 passed, 16 failed, 0 skipped**. It resumed an interrupted draft as unverified implementation input, using a temporary copy of the framework after local file reads stalled. No API source edits were made.
+- Final status was **BLOCKED**: the verifier payload contained **1,035,445 characters**, exceeding the 1,000,000-character input limit. No verifier, critic or healer completed this continuation. Passing execution is not semantic acceptance; API-defect versus oracle classification remains incomplete.
+- Local evidence: `.gauntlet/restaurant-auto/.gauntlet/runs/20260915120412-23123-823401/analysis.md`, `developer-analysis.md`, and `attempts/1/execution.json` (ignored). The preceding interrupted run `20260915114805-7889-2f6454` retains its proposals and diagnostic handoff. No claim of improved model quality is made from this single run. Large-plan verifier batching is outstanding.
+
 ## RESTaurant example and documentation refresh — 2026-09-15
 
 - TypeScript and **91 framework tests pass** after removing two retired application-example tests and adding workflow boundary coverage. Local Markdown files, anchors, JSON examples, npm entry points and the new setup script are checked against this checkout.

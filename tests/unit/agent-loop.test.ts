@@ -36,3 +36,25 @@ test('rejected builder proposals are fed back and bounded without any target exe
   const result = await runAgenticGauntlet(configured, { agentProvider: provider });
   assert.equal(result.status, 'STALLED'); assert.equal(result.iterations, 0); assert.ok(rejectionSeen);
 });
+
+
+test('lead cannot postpone execution with a fourth accepted build batch', async () => {
+  const configured = await config(); let builds = 0; let fourthActions: unknown;
+  const provider: AgentProvider = { async invoke(role, model, _system, input) {
+    let output: unknown;
+    if (role === 'discovery') output = {scenarios:[]};
+    else if (role === 'lead') {
+      if (builds === 3) fourthActions = (input as {allowedActions:string[]}).allowedActions;
+      output = {action:'build',reason:'Keep expanding without executing'};
+    } else {
+      builds++;
+      output = {cases:[{id:`batch-${builds}`,operationId:'listUsers',status:200,rationale:'Distinct request batch',request:{query:{limit:1,offset:builds}}}]};
+    }
+    return {agentId:`${role}-test`,model,promptHash:'test',responseHash:'test',output};
+  }};
+  const result = await runAgenticGauntlet(configured,{agentProvider:provider});
+  assert.equal(builds,3);
+  assert.deepEqual(fourthActions,['execute','block']);
+  assert.equal(result.status,'BLOCKED');
+  assert.match(result.findings[0]!.message,/LEAD_ACTION_DENIED/);
+});

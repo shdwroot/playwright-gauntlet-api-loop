@@ -377,6 +377,9 @@ export function applyAgentPlan(base: TestPlan, output: unknown, contract: Normal
       ...plan.cases.filter((item) => item.operationId === coverage.operationId).map((item) => item.id),
       ...plan.workflows.filter((workflow) => [...workflow.steps, ...(workflow.cleanupSteps ?? [])].some((item) => item.operationId === coverage.operationId)).map((workflow) => `workflow:${workflow.id}`),
     ])];
+    if (coverage.coveredBy.length > 0 && coverage.blockedReason === 'Requirement-scoped operation awaits an agent-authored scenario') {
+      delete coverage.blockedReason;
+    }
   }
   if (plan.discovery) {
     for (const testCase of all()) {

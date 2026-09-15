@@ -116,7 +116,7 @@ export async function runAgenticGauntlet(config: GauntletConfig, options: { runI
           // Larger requirement sets need several bounded builder batches before
           // spending a full regression iteration. Small APIs retain one build.
           allowedActions = coverageWorklist(plan, config.discovery.minimumConfidence).remaining >= 12 && buildsSinceExecution < 3
-            ? ['build', 'block'] : ['execute', 'build', 'block'];
+            ? ['build', 'block'] : buildsSinceExecution >= 3 ? ['execute', 'block'] : ['execute', 'build', 'block'];
         } catch (error) {
           latestError = errorMessage(error);
           await ledger.write(`agents/builder-${turn}-rejected.json`, { error: latestError });

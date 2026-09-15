@@ -227,3 +227,21 @@ test('assertion improvements append without weakening expectations and reject un
   assert.equal(enhanced.cases.at(-1)?.assertions?.length, 2);
   assert.throws(() => applyAgentPlan(built, { assertionAdditions: [{ caseId: target.id, assertions: [{ ...addition, value: '${unknown}' }] }] }, contract, config), /CAPTURE_UNBOUND/);
 });
+
+
+test('implemented requirement operations clear stale awaiting-scenario reasons without clearing unrelated blockers', async () => {
+  const {config, contract, plan} = await base();
+  const coverage = plan.operations.find(o => o.operationId === 'listUsers')!;
+  plan.cases = plan.cases.filter(c => c.operationId !== 'listUsers');
+  plan.workflows = [];
+  coverage.coveredBy = [];
+  coverage.blockedReason = 'Requirement-scoped operation awaits an agent-authored scenario';
+  const rejected = applyAgentPlanIncrementally(plan, {cases:[{...testCase,status:599}]}, contract, config);
+  assert.equal(rejected.plan.operations.find(o => o.operationId === 'listUsers')?.blockedReason, coverage.blockedReason);
+  const built = applyAgentPlan(plan, {cases:[testCase]}, contract, config);
+  assert.equal(built.operations.find(o => o.operationId === 'listUsers')?.blockedReason, undefined);
+  assert.ok(built.operations.find(o => o.operationId === 'listUsers')?.coveredBy.includes('agent-last-page'));
+  assert.equal(coverage.blockedReason, 'Requirement-scoped operation awaits an agent-authored scenario');
+  coverage.blockedReason = 'Independent prerequisite unavailable';
+  assert.equal(applyAgentPlan(plan, {cases:[testCase]}, contract, config).operations.find(o => o.operationId === 'listUsers')?.blockedReason, coverage.blockedReason);
+});
