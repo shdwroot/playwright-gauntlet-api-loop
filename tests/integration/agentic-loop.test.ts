@@ -23,20 +23,20 @@ async function runFixture(defect = false, rejectFollowup = false, provider: 'ope
       assert.equal(payload.model, 'mock-model');
       assert.equal(payload.text.format.strict, true);
       const input = JSON.parse(payload.input.slice('Return only valid JSON.\n'.length));
-      const system: string = payload.instructions;
+      const role: string = payload.text.format.name;
       let output: unknown;
-      if (system.startsWith('Analyze the complete')) {
+      if (role === 'discovery_response') {
         calls.push('discovery');
         assert.match(JSON.stringify(input.documents), /smallest valid page size/);
         output = { scenarios: [{ title: 'End-of-collection pagination', rationale: 'Prose calls for a valid small page at a distant offset.', operationId: 'listUsers', confidence: 0.99,
           scenario: { steps: ['Request the smallest valid page size at the largest supported offset.'] }, citations: [{ sourceIndex: 0, lineStart: 1, lineEnd: 1 }] }] };
-      } else if (system.startsWith('You manage')) {
+      } else if (role === 'lead_response') {
         calls.push('lead'); leadCount++;
         const actions = rejectFollowup ? ['build','build','execute','heal','execute','accept'] : ['build','execute','heal','execute','accept'];
         const action = actions[leadCount-1] ?? 'accept';
         assert.ok(input.allowedActions.includes(action));
         output = { action, reason: `Delegate ${action} based on current run evidence.` };
-      } else if (system.startsWith('You implement')) {
+      } else if (role === 'builder_response') {
         calls.push('builder');
         buildCount++;
         const candidateId = input.discovery.candidates.find((item: { signal: string }) => item.signal === 'semantic-scenario').id;
@@ -52,11 +52,11 @@ async function runFixture(defect = false, rejectFollowup = false, provider: 'ope
           if (buildCount === 1) (output as {cases:unknown[]}).cases.push(invalid);
           else output = {cases:[invalid]};
         }
-      } else if (system.startsWith('Independently verify')) {
+      } else if (role === 'verifier_response') {
         calls.push('verifier');
         output = { assessments: input.obligations.map((o: { id: string }) => ({ obligationId: o.id, verdict: 'verified', reason: 'Checks empty data at a valid distant offset.', proofs: [{ testId: 'agent-last-page', assertionPointers: ['/assertions/0'] }] })),
           isolation: [...input.plan.cases, ...input.plan.workflows].map((u: { id: string }) => ({ unitId: u.id, verdict: 'isolated', reason: 'Controlled regression fixture.' })) };
-      } else if (system.startsWith('Investigate actual')) {
+      } else if (role === 'healer_response') {
         calls.push('healer'); healerEvidence = input.evidence;
         assert.ok(input.evidence.execution.failures.length);
         if (!defect) {

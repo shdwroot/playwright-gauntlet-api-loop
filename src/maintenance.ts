@@ -1,3 +1,4 @@
+import { PROMPT_NAMES, PROMPTS_DIRECTORY, loadPrompt } from './prompts.js';
 import type { CoverageBacklog } from './coverage.js';
 import { mkdir, open, readFile, readdir, realpath, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -27,6 +28,12 @@ export async function snapshotContext(config: GauntletConfig, configPath?: strin
   const frameworkDir = path.dirname(fileURLToPath(import.meta.url));
   const modules = (await readdir(frameworkDir)).filter(file => /\.(?:js|ts)$/.test(file) && !file.endsWith('.d.ts')).sort();
   const framework = await Promise.all(modules.map(async file => ({ file, hash: sha256(await readFile(path.join(frameworkDir, file))) })));
+  if (config.agents.provider !== 'deterministic') {
+    for (const name of PROMPT_NAMES) {
+      loadPrompt(name); // Reject missing, empty or malformed prompts before a run.
+      files.push({ path: `framework-prompts/${name}.md`, hash: sha256(await readFile(path.join(PROMPTS_DIRECTORY, `${name}.md`))) });
+    }
+  }
   const frameworkHash = sha256(stableStringify(framework));
   return { revision: sha256(stableStringify({ files, config, frameworkHash })), frameworkHash, files };
 }

@@ -56,6 +56,10 @@ npm run gauntlet -- run --agentic --model YOUR_MODEL_ID
 
 For another API, use `--config path/to/gauntlet.config.json`. The config may set `agents.discoveryModel`, `leadModel`, `builderModel`, `verifierModel`, `criticModel`, and `healerModel` separately; missing discovery/lead/healer models inherit `builderModel`, and `verifierModel` inherits `criticModel`. `agents.provider` may be `openai` or `azure` to use live agents. `--agentic --model` overrides all role models and preserves Azure when selected. Azure role models are deployment names; see [Azure configuration](configuration.md#azure-openai).
 
+## Editable system prompts
+
+The seven role prompts and shared plan/transport instructions live in [prompts/](../prompts/README.md). They load on each invocation without a build or restart. Live context revisions include their hashes, so prompt changes invalidate candidate reuse and trigger watch-mode reruns; mid-run changes block acceptance of that result. IDE-helper skill files remain separate.
+
 ## What the agents actually control
 
 | Agent | Work and executable effect |
@@ -140,7 +144,7 @@ Three repetitions of the same builder/healer validation error without an accepte
 
 Run evidence is written to `.gauntlet/runs/<run-id>/`:
 
-- `agents/calls/`: redacted inputs, outputs and errors for every role invocation, including rejected proposals.
+- `agents/calls/`: redacted inputs, outputs and errors for every role invocation, including rejected proposals. Input records include the assembled `effectiveInstructions`, role `system` and `transportInstructions`.
 - `agents/lead-*.json`, `builder-*.json`, `healer-*.json`: accepted role decisions and model/prompt/response hashes.
 - `discovery/report.json`: semantic proposals, rationale, citations, source hashes and model invocation.
 - `plans/turn-*.json` and `plan.json`: authored plan revisions and current plan.
@@ -173,4 +177,4 @@ These use deterministic extraction and baseline generation. The CLI labels offli
 
 Preparation repairs use `repairs[].setupSteps`: the framework inserts those validated steps immediately before the original case. A standalone case moves intact into a workflow, retaining its ID, request, expected response, and assertions. Independent test cases continue after a failure; workflows still execute their own steps in order. An audit-only risk note does not count as an executable repair.
 
-Live OpenAI calls use strict structured output schemas, then decode and validate typed proposals. Invocation records include elapsed time and reported input/output token counts. Source text, arbitrary request bodies, and model decisions are never evaluated as JavaScript.
+Live OpenAI and Azure calls use strict structured output schemas, then decode and validate typed proposals. Invocation records include elapsed time and reported input/output token counts. Source text, arbitrary request bodies, and model decisions are never evaluated as JavaScript.

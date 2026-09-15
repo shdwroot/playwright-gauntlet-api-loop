@@ -53,6 +53,10 @@ For your API, follow [the setup walkthrough](training/walkthroughs/03-bring-your
 
 Adding an extension to an allowlist does not implement a format adapter. See [the current objective audit](docs/agentic-objectives-audit.md) and [remaining work](docs/implementation-plan.md).
 
+## Edit agent prompts
+
+Runtime system prompts live in [prompts/](prompts/README.md), one Markdown file per agent plus shared protocol instructions. Edits load without rebuilding; watch mode detects changes and reruns. Output schemas and contract gates remain enforced in code.
+
 ## IDE project helpers
 
 Codex, Claude Code and GitHub Copilot can invoke `gauntlet-api-analysis` for onboarding and `gauntlet-failure-analysis` for evidence-based diagnosis. See [agent and skill entry points](docs/ide-helpers.md). These use the IDE assistant independently of Gauntlet’s runtime provider.

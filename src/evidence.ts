@@ -1,3 +1,4 @@
+import { loadPrompt } from './prompts.js';
 import type { AgentProvider } from './agents.js';
 import { redactAgentData } from './agent-redaction.js';
 import { execFileSync } from 'node:child_process';
@@ -80,11 +81,12 @@ export function newRunId(): string {
 
 export function auditedAgentProvider(underlying: AgentProvider, ledger: RunLedger): AgentProvider {
   let sequence = 0;
-  return { async invoke(role, model, system, input) {
+  return { async invoke(role, model, system, input, transportInstructions) {
+    const transport = transportInstructions ?? loadPrompt('transport');
     const call = ++sequence;
-    await ledger.write(`agents/calls/${call}-${role}-input.json`, redactAgentData({ role, model, system, input }));
+    await ledger.write(`agents/calls/${call}-${role}-input.json`, redactAgentData({ role, model, system, transportInstructions: transport, effectiveInstructions: `${system}\n${transport}`, input }));
     try {
-      const reply = await underlying.invoke(role, model, system, input);
+      const reply = await underlying.invoke(role, model, system, input, transport);
       await ledger.write(`agents/calls/${call}-${role}-output.json`, redactAgentData(reply));
       return reply;
     } catch (error) {

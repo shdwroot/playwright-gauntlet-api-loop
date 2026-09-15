@@ -1,3 +1,4 @@
+import { loadPrompt } from './prompts.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentProvider } from './agents.js';
@@ -181,7 +182,7 @@ export class CriticAgent {
     const invocation = await this.provider.invoke(
       'critic',
       config.agents.criticModel,
-      'You are an independent evidence critic. You did not build this candidate. Return {"decision":"pass|fix|block","findings":[{"code":"...","severity":"blocking|warning|info","message":"...","evidence":["..."]}]}. Cite supplied evidence. A blocking finding must reuse an exact code from deterministicFindings; label every new concern warning or info. Treat verifiedFacts as verifier results, not builder claims. Do not require operation coverage above configuredPolicy.minimumOperationCoverage. Never suggest weakening an assertion.',
+      loadPrompt('critic'),
       criticInput,
     );
     const deterministicBlockingCodes = new Set(findings.filter((item) => item.severity === 'blocking').map((item) => item.code));

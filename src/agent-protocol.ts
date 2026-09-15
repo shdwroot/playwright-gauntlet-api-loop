@@ -21,7 +21,7 @@ const plan = object({
   riskNotes: array(object({ operationId: text, note: text })),
 });
 
-export const TRANSPORT_INSTRUCTIONS = `Your response must match the supplied JSON schema. request is a typed envelope. pathParams/query/headers are arrays of {name,value}; null preserves or omits that map, [] explicitly clears it. bodyJson is the JSON-encoded API payload (for example the username/password object), or null when omitted. rawBody and useAuth use null when omitted. Never place payload fields directly in request. Do not set bodyJson and rawBody together. Legacy requestJson decoding remains available for saved proposals; captureBindings is an array of {name,path} entries (use [] when unused), converted to the capture map. Assertion value is native JSON: use a number, boolean, null, string, or array of scalars directly; symbolic captured values use a string such as "\${createdId}". For exact object or nested-array comparisons, choose operator json-equals and provide the JSON-encoded object or array in value; the compiler parses and checks it. Do not use ordinary equals with a serialized object string. scenarioJson is a JSON-encoded scenario object. The adapter decodes transport fields before validation. Always provide proposal collection arrays, using [] when empty; request-map null preserves existing values. Use an empty operationId in a risk note or discovery finding that has no declared operation. Do not add unsupported fields.`;
+
 
 export function agentOutputSchema(role: string, input?: unknown): unknown {
   if (role === 'developer') return object({ hypothesis: text, edits: array(object({ path: text, oldText: text, newText: text, occurrence:{type:'integer',minimum:0} })) });

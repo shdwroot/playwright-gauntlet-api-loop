@@ -1,5 +1,11 @@
 # Validation scope and recorded evidence
 
+## Editable runtime prompts — 2026-09-15
+
+- TypeScript and **92 automated tests pass**. Prompt checks cover reload without rebuilding, shared includes, literal capture placeholders, missing/empty/oversized files, invalid includes and installation-relative resolution.
+- An isolated copy of the compiled runtime proves prompt edits alter the context revision and block a result when edited during execution. HTTP provider tests compare recorded assembled instructions with the actual request and confirm system edits change the prompt hash.
+- Existing OpenAI and Azure transport/orchestration regressions pass with file-loaded prompts. These checks do not establish a new live-model acceptance result.
+
 ## Azure provider — 2026-09-15
 
 - TypeScript and **89 automated tests pass**. Azure checks cover v1 URL normalization, API-key headers, deployment selection, structured output and usage parsing, missing credentials, HTTP errors, live quality defaults, URL onboarding/refresh and CLI provider preservation.

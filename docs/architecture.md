@@ -43,6 +43,8 @@ spec + configured context → discovery → persistent obligations
 | `src/maintenance.ts` | Locks, context fingerprints, watch scheduling, history and revision-bound candidate-plan persistence |
 | `src/analysis-report.ts` | Consolidate every attempt, coverage, repairs, findings and model usage into Markdown/JSON |
 
+Runtime prompt text is loaded by `src/prompts.ts` from the editable `prompts/` directory. Prompt hashes are part of live context revisions, while executable schemas and validation stay in code.
+
 The executor, compiler, renderer and report writer are code components, not extra LLM agents. Separate prompts and invocation identities establish role separation; using the same model across these roles does not make review mathematically independent.
 
 ## Trust boundaries
