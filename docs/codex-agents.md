@@ -1,5 +1,7 @@
 # Developer analysis in Codex
 
+For Codex, Claude Code and GitHub Copilot entry points, see the [shared IDE helper guide](ide-helpers.md).
+
 This repository includes two callable Codex skills under `.agents/skills/`. They give the IDE assistant reusable analysis workflows. The Gauntlet runtime still owns its separate discovery, lead, builder, verifier, critic and healer model calls.
 
 Open this repository in the Codex IDE extension and type `$` to select a skill. If it is missing, restart Codex. Repository skill discovery and explicit invocation follow the [official Codex skill documentation](https://developers.openai.com/codex/skills/).

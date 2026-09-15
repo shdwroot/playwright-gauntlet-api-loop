@@ -53,6 +53,10 @@ For your API, follow [the setup walkthrough](training/walkthroughs/03-bring-your
 
 Adding an extension to an allowlist does not implement a format adapter. See [the current objective audit](docs/agentic-objectives-audit.md) and [remaining work](docs/implementation-plan.md).
 
+## IDE project helpers
+
+Codex, Claude Code and GitHub Copilot can invoke `gauntlet-api-analysis` for onboarding and `gauntlet-failure-analysis` for evidence-based diagnosis. See [agent and skill entry points](docs/ide-helpers.md). These use the IDE assistant independently of Gauntlet’s runtime provider.
+
 ## Commands and evidence
 
 ```bash

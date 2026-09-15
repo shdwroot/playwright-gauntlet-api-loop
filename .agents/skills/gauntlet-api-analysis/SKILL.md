@@ -19,7 +19,7 @@ Analyze:
 
 Write `api-analysis.md` and `requirements-matrix.json` in the chosen local artifact directory. Include source hashes, endpoint inventory, per-criterion mappings, unresolved questions and prioritized developer tasks with file pointers and acceptance checks. Preserve unknowns; never invent fixtures or numerical gates.
 
-When setup is requested, create a separate config with explicit target, policy and real model roles. The user's configured model takes precedence; this repository currently uses Luna. Environment files load beside the selected config, and exported `GAUNTLET_BASE_URL` overrides its target. Store credential variable names only. Explain a safe way to load the chosen environment without displaying values.
+When setup is requested, create a separate config with explicit target, policy and real model roles. The user's configured provider and model take precedence. Preserve Azure deployment names when Azure is selected; the default OpenAI configuration uses Luna. Environment files load beside the selected config, and exported `GAUNTLET_BASE_URL` overrides its target. Store credential variable names only. Explain a safe way to load the chosen environment without displaying values.
 
 Run `npm run gauntlet -- doctor --config <path>` for local validation. It makes no target or model requests and does not prove credentials or transport support. `discover` makes live model calls but no target requests; `generate` adds plan generation. `run` regenerates and executes, so a previous generated plan is not frozen. Execute only the requested scope and make those differences explicit in the handoff.
 

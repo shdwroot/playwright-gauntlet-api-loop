@@ -7,7 +7,7 @@ Analyze the supplied Gauntlet run and produce a developer handoff. Locate the fr
 
 Start with `result.json` and `analysis.md`/`analysis.json`, then follow their actual references to plan, discovery, critic, verifier, coverage backlog, request/response exchanges, test results and traces. Preserve the run ID, source revision and all attempts. Missing or corrupt artifacts are evidence gaps, not passing tests. Inspect relevant framework or application code when available; distinguish observed facts from root-cause hypotheses.
 
-Classify each finding as an API defect, contract/requirement conflict, missing fixture or credential, environment failure, generated-test/framework defect, or unverified coverage. A 200 response alone does not prove the associated business rule. A model concern without corroboration is advisory; inspect deterministic findings and executable assertions before promoting it to a defect.
+Classify each finding as an API defect, contract/requirement conflict, missing fixture or credential, environment failure, generated-test/framework defect, or unverified coverage. A 200 response alone does not prove the associated business rule. Check whether the recorded requirement permits alternative outcomes, such as rejection or ignoring a field; inspect state invariants and the actual response branch before declaring a defect. Provider quota exhaustion is an infrastructure blocker, not an API failure. A model concern without corroboration is advisory; inspect deterministic findings and executable assertions before promoting it to a defect.
 
 For each actionable finding, record:
 
