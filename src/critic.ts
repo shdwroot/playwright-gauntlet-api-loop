@@ -67,7 +67,7 @@ export class CriticAgent {
       && item.confidence >= config.discovery.minimumConfidence && item.disposition !== 'rejected');
     const unimplemented = semanticScenarios.filter(item => item.tests.length === 0);
     const scenarioCoverage = semanticScenarios.length ? 1 - unimplemented.length / semanticScenarios.length : 1;
-    if (scenarioCoverage < (config.quality.minimumScenarioCoverage ?? (config.agents.provider === 'openai' ? 1 : 0))) {
+    if (scenarioCoverage < (config.quality.minimumScenarioCoverage ?? (config.agents.provider !== 'deterministic' ? 1 : 0))) {
       findings.push(finding('SCENARIO_COVERAGE_GAP', 'Confident AI-discovered scenarios remain unimplemented. Passing existing tests is insufficient.',
         unimplemented.map(item => `${item.candidateId}: ${item.title}: ${item.reason}`)));
     }

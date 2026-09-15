@@ -1,3 +1,4 @@
+import { azureResponsesUrl } from './azure.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { loadEnvFile } from 'node:process';
@@ -105,9 +106,9 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
   if (!headersRaw || typeof headersRaw !== 'object' || Array.isArray(headersRaw)) throw new Error('CONFIG_INVALID: headersFromEnv must be an object');
 
   const provider = process.env.GAUNTLET_AGENT_PROVIDER ?? agentsRaw.provider;
-  const modelOverride = process.env.GAUNTLET_AGENT_MODEL;
+  const modelOverride = process.env.GAUNTLET_AGENT_MODEL || (provider === 'azure' ? process.env.AZURE_OPENAI_DEPLOYMENT : undefined);
   const model = (key: string, fallback?: string): string => modelOverride || (agentsRaw[key] === undefined && fallback ? fallback : requireString(agentsRaw, key));
-  if (provider !== 'deterministic' && provider !== 'openai') throw new Error('CONFIG_INVALID: agents.provider must be deterministic or openai');
+  if (provider !== 'deterministic' && provider !== 'openai' && provider !== 'azure') throw new Error('CONFIG_INVALID: agents.provider must be deterministic, openai or azure');
 
   const config: GauntletConfig = {
     ...(raw.fixtures ? { fixtures: (() => {
@@ -162,14 +163,15 @@ export async function loadConfig(configPath = 'gauntlet.config.json'): Promise<{
       verifierModel: model('verifierModel', model('criticModel')),
       timeoutMs: positiveInteger(agentsRaw, 'timeoutMs', 120_000),
       ...(typeof agentsRaw.openaiBaseUrl === 'string' ? { openaiBaseUrl: agentsRaw.openaiBaseUrl } : {}),
+      ...(provider === 'azure' ? { azureEndpoint: azureResponsesUrl(process.env.AZURE_OPENAI_ENDPOINT ?? agentsRaw.azureEndpoint) } : {}),
       ...(typeof agentsRaw.apiKeyEnv === 'string' ? { apiKeyEnv: agentsRaw.apiKeyEnv } : {}),
     },
     quality: {
       minimumScore: Math.min(100, Math.max(0, finiteNumber(qualityRaw, 'minimumScore', 95))),
       minimumOperationCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumOperationCoverage', 1))),
-      minimumScenarioCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumScenarioCoverage', provider === 'openai' ? 1 : 0))),
-      requireSemanticVerification: qualityRaw.requireSemanticVerification !== false && provider === 'openai',
-      requireIsolationReview: qualityRaw.requireIsolationReview !== false && provider === 'openai',
+      minimumScenarioCoverage: Math.min(1, Math.max(0, finiteNumber(qualityRaw, 'minimumScenarioCoverage', provider !== 'deterministic' ? 1 : 0))),
+      requireSemanticVerification: qualityRaw.requireSemanticVerification !== false && provider !== 'deterministic',
+      requireIsolationReview: qualityRaw.requireIsolationReview !== false && provider !== 'deterministic',
     },
     discovery: discoveryConfig(raw, root),
   };

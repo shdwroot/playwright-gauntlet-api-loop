@@ -25,7 +25,7 @@ Usage:
   api-gauntlet report <run-id-or-directory> [--config path]
 
 Agentic mode: append --agentic --model <model-id> (or set OPENAI_MODEL). Requires the configured API key (OPENAI_API_KEY by default).
-Config agents.provider=openai also enables agentic mode, with separate role models.
+Config agents.provider=openai or azure also enables agentic mode, with separate role models.
 
 One-shot exit codes: 0 passed, 1 failed, 2 blocked/stalled, 3 framework/config error.
 Watch mode reports each run; use one-shot run for a CI exit code.`);
@@ -44,17 +44,19 @@ async function main(): Promise<void> {
       directory: option(args, '--project-dir'), model: option(args, '--model'), source: option(args, '--source'), allowProduction: args.includes('--allow-production') });
     // An explicitly supplied target takes precedence over an unrelated .env URL.
     process.env.GAUNTLET_BASE_URL = (JSON.parse(await readFile(configPath, 'utf8')) as { baseUrl: string }).baseUrl;
-    process.env.GAUNTLET_AGENT_PROVIDER = 'openai';
+    process.env.GAUNTLET_AGENT_PROVIDER = (JSON.parse(await readFile(configPath, 'utf8')) as { agents: { provider: string } }).agents.provider;
   }
   if (args.includes('--agentic')) {
-    const model = option(args, '--model') ?? process.env.OPENAI_MODEL;
+    const { config: selected } = await loadConfig(configPath);
+    const azure = selected.agents.provider === 'azure';
+    const model = option(args, '--model') ?? process.env.GAUNTLET_AGENT_MODEL ?? (azure ? process.env.AZURE_OPENAI_DEPLOYMENT ?? selected.agents.builderModel : process.env.OPENAI_MODEL);
     if (!model || model.startsWith('--')) throw new Error('AGENT_MODEL_REQUIRED: use --model or set OPENAI_MODEL');
-    process.env.GAUNTLET_AGENT_PROVIDER = 'openai';
+    process.env.GAUNTLET_AGENT_PROVIDER = azure ? 'azure' : 'openai';
     process.env.GAUNTLET_AGENT_MODEL = model;
   }
   if (['discover', 'generate', 'run', 'loop'].includes(command)) {
     const { config } = await loadConfig(configPath);
-    console.error(config.agents.provider === 'openai'
+    console.error(config.agents.provider !== 'deterministic'
       ? `AGENTIC: live model calls enabled (discovery, lead, builder, verifier, critic, healer as needed). Model: ${config.agents.builderModel}`
       : 'OFFLINE: deterministic fixture mode; no LLM calls. Use --agentic --model <model-id> for autonomous agents.');
   }

@@ -71,7 +71,7 @@ export async function maintainRun(config: GauntletConfig, configPath: string | u
     const validated = saved?.revision === before.revision ? saved : undefined;
     const draft = checkpoint?.revision === before.revision ? checkpoint : undefined;
     const candidate = draft && draft.hash !== validated?.hash ? draft : validated ?? draft;
-    const reusable = config.agents.provider === 'openai' ? candidate?.plan : undefined;
+    const reusable = config.agents.provider !== 'deterministic' ? candidate?.plan : undefined;
     const backlogPath = path.join(stateDir, 'coverage-backlog.json');
     const previousBacklog = await optionalJson<CoverageBacklog>(backlogPath);
     const result = await execute(reusable, previousBacklog);

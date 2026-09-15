@@ -74,12 +74,15 @@ export async function onboard(options: OnboardingOptions): Promise<string> {
     };
     await copy(sourceRoot, rootIsFile ? path.basename(sourceRoot) : '');
   }
-  const model = options.model ?? process.env.GAUNTLET_AGENT_MODEL ?? process.env.OPENAI_MODEL ?? 'gpt-5.6-luna';
   // Re-onboarding preserves explicit credentials, budgets, fixtures and repair
   // configuration, but refreshes target, contract and selected context sources.
   let previous: Record<string, unknown> = {};
   try { previous = JSON.parse(await readFile(configPath, 'utf8')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const previousAgents = (previous.agents ?? {}) as Record<string, unknown>;
+  const provider = process.env.GAUNTLET_AGENT_PROVIDER ?? (previousAgents.provider === 'azure' ? 'azure' : 'openai');
+  const model = options.model ?? process.env.GAUNTLET_AGENT_MODEL ?? (provider === 'azure' ? process.env.AZURE_OPENAI_DEPLOYMENT : process.env.OPENAI_MODEL);
+  if (provider === 'azure' && !model && !previousAgents.builderModel) throw new Error('AGENT_MODEL_REQUIRED: set AZURE_OPENAI_DEPLOYMENT or use --model with your Azure deployment name');
   const sourceRepair = options.source ? await discoverSourceProject(baseUrl, options.source) : undefined;
   const fixtures = sourceRepair ? await discoverFixtures(sourceRepair,baseUrl) : undefined;
   const config = {
@@ -90,7 +93,7 @@ export async function onboard(options: OnboardingOptions): Promise<string> {
     safety: { maxRequestsPerRun: 2000, maxResponseBytes: 262144, ...(previous.safety as object ?? {}),
       allowedHosts: [url.hostname], allowedMethods: [...new Set(contract.operations.map(o => o.method))],
       allowDestructive: contract.operations.some(o => o.destructive), allowProduction: !local },
-    agents: { ...(previous.agents as object ?? {}), provider: 'openai', ...Object.fromEntries(['discovery', 'lead', 'builder', 'verifier', 'critic', 'healer'].map(role => [`${role}Model`, model])) },
+    agents: { ...(previous.agents as object ?? {}), provider, ...Object.fromEntries(['discovery', 'lead', 'builder', 'verifier', 'critic', 'healer'].map(role => [`${role}Model`, model ?? previousAgents[`${role}Model`] ?? previousAgents.builderModel ?? 'gpt-5.6-luna'])) },
     discovery: { enabled: sources.length > 0, required: sources.length > 0, sources },
     ...(sourceRepair ? { sourceRepair } : {}), ...(fixtures ? { fixtures } : {}),
   };

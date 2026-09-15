@@ -29,7 +29,7 @@ export async function runGauntlet(options: RunOptions = {}): Promise<RunResult> 
 }
 
 async function runOnce(config: Awaited<ReturnType<typeof loadConfig>>['config'], options: RunOptions, previousPlan?: TestPlan, previousBacklog?: CoverageBacklog): Promise<RunResult> {
-  if (config.agents.provider === 'openai') return runAgenticGauntlet(config, { ...options, ...(previousBacklog ? { previousBacklog } : {}), ...(previousPlan ? { previousPlan } : {}) });
+  if (config.agents.provider !== 'deterministic') return runAgenticGauntlet(config, { ...options, ...(previousBacklog ? { previousBacklog } : {}), ...(previousPlan ? { previousPlan } : {}) });
   const contract = await loadContract(config.spec);
   const discovery = await discoverScenarios(contract, config);
   const runId = options.runId ?? newRunId();
@@ -128,7 +128,7 @@ async function generateOnce(config: Awaited<ReturnType<typeof loadConfig>>['conf
   let contract = await loadContract(config.spec);
   let provider = createAgentProvider(config.agents);
   let ledger: RunLedger | undefined;
-  if (config.agents.provider === 'openai') {
+  if (config.agents.provider !== 'deterministic') {
     ledger = new RunLedger(newRunId(), config);
     await ledger.initialize(contract.specHash);
     provider = auditedAgentProvider(provider, ledger);
@@ -137,7 +137,7 @@ async function generateOnce(config: Awaited<ReturnType<typeof loadConfig>>['conf
   const discovery = await discoverScenarios(contract, config, provider);
   contract = addRequirementOracles(contract, discovery);
   await ledger?.write('discovery/report.json', discovery);
-  const built = await new BuilderAgent(provider).build(contract, config, [], config.discovery.enabled || config.agents.provider === 'openai' ? discovery : undefined);
+  const built = await new BuilderAgent(provider).build(contract, config, [], config.discovery.enabled || config.agents.provider !== 'deterministic' ? discovery : undefined);
   await ledger?.write('agents/builder.json', built.invocation);
   await ledger?.write('plan.json', built.plan);
   const manifest = await generateArtifacts(built.plan, config);
@@ -147,7 +147,7 @@ async function generateOnce(config: Awaited<ReturnType<typeof loadConfig>>['conf
 export async function discoverOnly(configPath?: string) {
   const { config } = await loadConfig(configPath);
   const contract = await loadContract(config.spec);
-  if (config.agents.provider !== 'openai') return discoverScenarios(contract, config);
+  if (config.agents.provider === 'deterministic') return discoverScenarios(contract, config);
   const ledger = new RunLedger(newRunId(), config);
   await ledger.initialize(contract.specHash);
   await ledger.record('DISCOVER', 0, 'Live semantic discovery');

@@ -10,7 +10,7 @@ Replace the URL and context path with your own API inputs. Testing does not requ
 
 The core loop owns contract/context ingestion, discovery, test compilation, execution, coverage, healing and reports. Application-specific provisioning, database access and restart commands belong to optional integrations. The RESTaurant integration below is a sample adapter, not a requirement for onboarding another API. Arbitrary fixture adapters are not yet configurable through the built-in fixture interface; other APIs can use declared setup/cleanup workflows and reset hooks.
 
-The repository `.env` is loaded before onboarding. The explicit URL wins over an unrelated `GAUNTLET_BASE_URL`. Luna is the default; `--model` selects another model. No offline provider is substituted when a model call fails.
+The repository `.env` is loaded before onboarding. The explicit URL wins over an unrelated `GAUNTLET_BASE_URL`. Luna through OpenAI is the default; `--model` selects another model. Set `GAUNTLET_AGENT_PROVIDER=azure` and the [Azure environment variables](configuration.md#azure-openai) to use Azure deployment names throughout the loop. No offline provider is substituted when a model call fails.
 
 Supply `--context` repeatedly for additional files or directories. A plain API base URL is also accepted; onboarding looks for `openapi.json` beneath that base. A custom contract filename ending in JSON or YAML is treated as a spec URL with its containing URL as the API base. The contract's `servers` value is not followed automatically. Remote targets require `--allow-production`.
 

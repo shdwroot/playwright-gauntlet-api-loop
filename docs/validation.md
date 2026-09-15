@@ -1,5 +1,11 @@
 # Validation scope and recorded evidence
 
+## Azure provider — 2026-09-15
+
+- TypeScript and **89 automated tests pass**. Azure checks cover v1 URL normalization, API-key headers, deployment selection, structured output and usage parsing, missing credentials, HTTP errors, live quality defaults, URL onboarding/refresh and CLI provider preservation.
+- A controlled Azure-compatible HTTP endpoint drives the full discovery/build/execute/verify/heal/rerun flow against a disposable API. This tests protocol and orchestration; no actual Azure deployment acceptance run has been performed.
+- Azure supports API-key authentication and v1 Responses with JSON-schema structured outputs. Entra ID credential acquisition and legacy preview API versions are not implemented.
+
 ## Repair and coverage follow-up — 2026-09-15
 
 - TypeScript checks and **85 automated tests passed**. New checks cover exact JSON comparisons over HTTP, dictionary response paths, declared 4xx credential tests, typed request envelopes, retained-plan execution after rejected follow-up batches, partial acceptance of independent builder units, cleanup evidence links, bounded concurrent requests, per-status response schemas, and cleanup after a failed race assertion.

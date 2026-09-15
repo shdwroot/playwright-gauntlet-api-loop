@@ -150,7 +150,7 @@ function candidateKey(candidate: Omit<DiscoveryCandidate, 'id'>): string {
 }
 
 export async function discoverScenarios(contract: NormalizedContract, config: GauntletConfig, provider?: AgentProvider): Promise<DiscoveryReport> {
-  if (!config.discovery.enabled && config.agents.provider !== 'openai') {
+  if (!config.discovery.enabled && config.agents.provider === 'deterministic') {
     const disabled = { formatVersion: 1 as const, specHash: contract.specHash, sourceCount: 0, totalBytes: 0, sources: [], candidates: [], warnings: ['Discovery is disabled; the plan is contract-only.'], redactionCount: 0 };
     return { ...disabled, discoveryHash: sha256(stableStringify(disabled)) };
   }
@@ -274,8 +274,8 @@ export async function discoverScenarios(contract: NormalizedContract, config: Ga
   }
   if (files.length === 0) warnings.push('Discovery enabled but no source files matched.');
   for (const source of sources) warnings.push(...source.findings.map((finding) => `${source.sourcePath}:${finding}`));
-  const analysis: NonNullable<DiscoveryReport['analysis']> = { mode: config.agents.provider === 'openai' ? 'llm' : 'deterministic', invocations: [] };
-  if (config.agents.provider === 'openai') {
+  const analysis: NonNullable<DiscoveryReport['analysis']> = { mode: config.agents.provider !== 'deterministic' ? 'llm' : 'deterministic', invocations: [] };
+  if (config.agents.provider !== 'deterministic') {
     const input = { contract: { operations: contract.operations, document: contract.document, workflows: contract.workflows }, documents,
       existingCandidates: candidates, maxCandidates: config.discovery.maxCandidates - candidates.length };
     if (agentCharacters > (config.discovery.maxAgentInputCharacters ?? 200_000) || stableStringify(input).length > 900_000) throw new Error('DISCOVERY_AGENT_INPUT_LIMIT: narrow sources or raise discovery.maxAgentInputCharacters; no source text was silently truncated');

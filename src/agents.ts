@@ -1,3 +1,4 @@
+import { azureResponsesUrl } from './azure.js';
 import { fetchAgentResponse } from './provider-http.js';
 import { agentOutputSchema, decodeAgentOutput, TRANSPORT_INSTRUCTIONS } from './agent-protocol.js';
 import type { AgentConfig, CriticFinding, DiscoveryReport, NormalizedContract, TestPlan, GauntletConfig } from './types.js';
@@ -43,7 +44,8 @@ export class OpenAIResponsesProvider implements AgentProvider {
   constructor(private readonly config: AgentConfig) {}
 
   async invoke(role: AgentRole, model: string, system: string, input: unknown): Promise<AgentReply> {
-    const apiKeyEnv = this.config.apiKeyEnv ?? 'OPENAI_API_KEY';
+    const azure = this.config.provider === 'azure';
+    const apiKeyEnv = this.config.apiKeyEnv ?? (azure ? 'AZURE_OPENAI_API_KEY' : 'OPENAI_API_KEY');
     const apiKey = process.env[apiKeyEnv];
     if (!apiKey) throw new Error(`CREDENTIAL_MISSING: ${apiKeyEnv}`);
     const baseUrl = (this.config.openaiBaseUrl ?? 'https://api.openai.com').replace(/\/$/, '');
@@ -52,9 +54,11 @@ export class OpenAIResponsesProvider implements AgentProvider {
     if (prompt.length > 1_000_000) throw new Error(`AGENT_INPUT_LIMIT: ${role} input has ${prompt.length} characters; maximum 1000000`);
     const started = Date.now();
     console.error(`[${role}] ${model}: calling model`);
-    const response = await fetchAgentResponse(`${baseUrl}/v1/responses`, {
+    const url = azure ? azureResponsesUrl(this.config.azureEndpoint) : `${baseUrl}/v1/responses`;
+    const response = await fetchAgentResponse(url, {
       method: 'POST',
-      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      redirect: 'error',
+      headers: { ...(azure ? { 'api-key': apiKey } : { authorization: `Bearer ${apiKey}` }), 'content-type': 'application/json' },
       body: JSON.stringify({
         model,
         instructions: `${system}\n${TRANSPORT_INSTRUCTIONS}`,
@@ -96,7 +100,11 @@ export class OpenAIResponsesProvider implements AgentProvider {
 }
 
 export function createAgentProvider(config: AgentConfig): AgentProvider {
-  return config.provider === 'openai' ? new OpenAIResponsesProvider(config) : new DeterministicAgentProvider();
+  switch (config.provider) {
+    case 'openai': case 'azure': return new OpenAIResponsesProvider(config);
+    case 'deterministic': return new DeterministicAgentProvider();
+    default: throw new Error('CONFIG_INVALID: unsupported agent provider');
+  }
 }
 
 export class BuilderAgent {

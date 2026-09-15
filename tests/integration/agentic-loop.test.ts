@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { runGauntlet } from '../../src/gauntlet.js';
 import type { TestPlan } from '../../src/types.js';
 
-async function runFixture(defect = false, rejectFollowup = false) {
+async function runFixture(defect = false, rejectFollowup = false, provider: 'openai' | 'azure' = 'openai') {
   const calls: string[] = [];
   let leadCount = 0;
   let buildCount = 0;
@@ -17,7 +17,11 @@ async function runFixture(defect = false, rejectFollowup = false) {
   const model = createServer(async (req, res) => {
     try {
       let body = ''; for await (const chunk of req) body += chunk;
+      assert.equal(req.url, provider === 'azure' ? '/openai/v1/responses' : '/v1/responses');
+      assert.equal(req.headers[provider === 'azure' ? 'api-key' : 'authorization'], provider === 'azure' ? 'test-only-model-key' : 'Bearer test-only-model-key');
       const payload = JSON.parse(body);
+      assert.equal(payload.model, 'mock-model');
+      assert.equal(payload.text.format.strict, true);
       const input = JSON.parse(payload.input.slice('Return only valid JSON.\n'.length));
       const system: string = payload.instructions;
       let output: unknown;
@@ -84,7 +88,7 @@ async function runFixture(defect = false, rejectFollowup = false) {
     await writeFile(path.join(root, 'context.md'), 'Pagination should handle the smallest valid page size at an offset beyond the available collection.\n');
     const original = JSON.parse(await readFile('gauntlet.config.json', 'utf8'));
     const config = { ...original, spec: 'spec.yaml', baseUrl: `http://127.0.0.1:${port}`, discovery: { enabled: true, required: true, sources: ['context.md'] },
-      agents: { provider: 'openai', builderModel: 'mock-model', criticModel: 'mock-model', apiKeyEnv: 'GAUNTLET_TEST_MODEL_KEY', openaiBaseUrl: `http://127.0.0.1:${modelPort}` } };
+      agents: { provider, azureEndpoint: `http://127.0.0.1:${modelPort}`, builderModel: 'mock-model', criticModel: 'mock-model', apiKeyEnv: 'GAUNTLET_TEST_MODEL_KEY', openaiBaseUrl: `http://127.0.0.1:${modelPort}` } };
     process.env.GAUNTLET_TEST_MODEL_KEY = 'test-only-model-key';
     process.env.SAMPLE_API_KEY = 'gauntlet-local-key';
     const configPath = path.join(root, 'gauntlet.config.json');
@@ -133,4 +137,12 @@ test('a rejected follow-up batch executes retained valid tests instead of stalli
   assert.ok(!plan.cases.some(c=>c.id==='agent-invalid'));
   const validation=JSON.parse(await readFile(path.join(result.runDir,'agents/builder-2-validation.json'),'utf8'));
   assert.match(validation.rejections[0],/AGENT_OPERATION_UNKNOWN/);
+});
+
+// Scripted transport verifies routing/orchestration; it is not live Azure acceptance.
+test('Azure transport drives discovery, execution, verification and healing through the full agentic loop', {timeout:240_000}, async()=>{
+  const {result,calls}=await runFixture(false,false,'azure');
+  assert.equal(result.status,'PASSED',JSON.stringify(result.findings));
+  assert.equal(result.iterations,2);
+  for(const role of ['discovery','lead','builder','verifier','critic','healer']) assert.ok(calls.includes(role));
 });

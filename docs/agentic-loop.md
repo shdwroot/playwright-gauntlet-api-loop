@@ -54,7 +54,7 @@ To select another model temporarily:
 npm run gauntlet -- run --agentic --model YOUR_MODEL_ID
 ```
 
-For another API, use `--config path/to/gauntlet.config.json`. The config may set `agents.discoveryModel`, `leadModel`, `builderModel`, `verifierModel`, `criticModel`, and `healerModel` separately; missing discovery/lead/healer models inherit `builderModel`, and `verifierModel` inherits `criticModel`. `agents.provider` must be `openai` to use live agents. `--agentic --model` overrides provider and all role models for that invocation.
+For another API, use `--config path/to/gauntlet.config.json`. The config may set `agents.discoveryModel`, `leadModel`, `builderModel`, `verifierModel`, `criticModel`, and `healerModel` separately; missing discovery/lead/healer models inherit `builderModel`, and `verifierModel` inherits `criticModel`. `agents.provider` may be `openai` or `azure` to use live agents. `--agentic --model` overrides all role models and preserves Azure when selected. Azure role models are deployment names; see [Azure configuration](configuration.md#azure-openai).
 
 ## What the agents actually control
 

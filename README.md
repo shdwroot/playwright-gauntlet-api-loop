@@ -1,6 +1,6 @@
 # Playwright API Gauntlet Loop
 
-Gauntlet runs a maintained API testing loop: AI discovers scenarios from an OpenAPI contract and supporting text, authors typed Playwright API tests, runs them, reviews their assertions and isolation, repairs test implementation faults, optionally fixes and restarts an authorized API source checkout, and writes an analysis report. The default configuration uses **gpt-5.6-luna** for six roles: discovery, lead, builder, verifier, critic and healer.
+Gauntlet runs a maintained API testing loop: AI discovers scenarios from an OpenAPI contract and supporting text, authors typed Playwright API tests, runs them, reviews their assertions and isolation, repairs test implementation faults, optionally fixes and restarts an authorized API source checkout, and writes an analysis report. Live providers include OpenAI-compatible endpoints and [Azure OpenAI](docs/configuration.md#azure-openai). The default configuration uses **gpt-5.6-luna** for six roles: discovery, lead, builder, verifier, critic and healer.
 
 OpenAPI statuses and schemas remain authoritative; explicit structured requirements can add separately traced oracles. API defects stay red until a configured source repair passes a fresh rerun. A passing run certifies the configured gates and executed scenarios, not exhaustive API coverage.
 

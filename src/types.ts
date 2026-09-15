@@ -275,7 +275,7 @@ export interface AgentInvocation {
 }
 
 export interface AgentConfig {
-  provider: 'deterministic' | 'openai';
+  provider: 'deterministic' | 'openai' | 'azure';
   builderModel: string;
   criticModel: string;
   discoveryModel?: string;
@@ -284,6 +284,7 @@ export interface AgentConfig {
   verifierModel?: string;
   timeoutMs?: number;
   openaiBaseUrl?: string;
+  azureEndpoint?: string;
   apiKeyEnv?: string;
 }
 

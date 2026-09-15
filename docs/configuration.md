@@ -22,15 +22,16 @@ The root config uses six live Luna roles. `gauntlet.offline.config.json` and the
 
 | Setting | Effect |
 | --- | --- |
-| `agents.provider` | `openai` for actual model calls; `deterministic` for offline fixtures |
+| `agents.provider` | `openai` or `azure` for actual model calls; `deterministic` for offline fixtures |
 | `builderModel`, `criticModel` | Required role model names |
 | `discoveryModel`, `leadModel`, `healerModel` | Default to builder model |
 | `verifierModel` | Defaults to critic model |
 | `agents.timeoutMs` | Per-model-call timeout, default 120000 ms |
-| `agents.apiKeyEnv` | Credential variable name, default `OPENAI_API_KEY` |
-| `agents.openaiBaseUrl` | Model provider endpoint; separate from the target API's `baseUrl` |
+| `agents.apiKeyEnv` | Credential variable name; default `AZURE_OPENAI_API_KEY` for Azure, otherwise `OPENAI_API_KEY` |
+| `agents.openaiBaseUrl` | OpenAI-compatible model endpoint; separate from the target API's `baseUrl` |
+| `agents.azureEndpoint` | Azure resource URL or `/openai/v1/` base; overridden by `AZURE_OPENAI_ENDPOINT` |
 
-`--agentic --model MODEL_ID` selects live mode and overrides all role models for that invocation. `OPENAI_MODEL` supplies the model only when `--agentic` is used without `--model`. `GAUNTLET_AGENT_PROVIDER` and `GAUNTLET_AGENT_MODEL` directly override provider/model configuration; clear them when switching to offline exercises. There is no silent fallback from a failed model call to a scripted agent.
+`--agentic --model MODEL_ID` preserves Azure when selected, otherwise selects OpenAI live mode and overrides all role models for that invocation. `OPENAI_MODEL` supplies the model only when `--agentic` is used without `--model`. `GAUNTLET_AGENT_PROVIDER` and `GAUNTLET_AGENT_MODEL` directly override provider/model configuration; clear them when switching to offline exercises. There is no silent fallback from a failed model call to a scripted agent.
 
 ## Supporting context
 
@@ -84,3 +85,26 @@ Agent-authored `cleanupSteps` run in `finally`. Cleanup failures remain visible 
 Declared security plus `401` enables missing-credential cases. Examples, enums, required properties and boundaries drive the baseline planner. `x-gauntlet-conflict-value` supplies a known fixture duplicate for `409` tests.
 
 OpenAPI `x-gauntlet-workflows` uses `$response.body#/id` captures and `${steps.create.itemId}` references. Agent proposals use `capture: {itemId: "$.id"}` and `${itemId}`. These are different input syntaxes; the loader/compiler normalizes them to runtime captures. The OpenAPI extension currently has main `steps` only: deleting in a final main step does not provide failure-path cleanup. See [agent-authored cleanup](agentic-loop.md#cleanup-and-isolation).
+
+## Azure OpenAI
+
+Set these in the `.env` beside your config (the repository `.env` for URL onboarding):
+
+```dotenv
+GAUNTLET_AGENT_PROVIDER=azure
+AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com
+AZURE_OPENAI_API_KEY=YOUR-KEY
+AZURE_OPENAI_DEPLOYMENT=YOUR-DEPLOYMENT-NAME
+```
+
+Then run the same loop:
+
+```bash
+npm run gauntlet -- run --url http://127.0.0.1:8080/openapi.json --context ./your-api/requirements.json --watch
+```
+
+The LLM endpoint is separate from the API being tested. Azure uses `POST /openai/v1/responses`, the `api-key` header, and the deployment name in `model`, following [Microsoft's Responses API documentation](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/responses). Resource URLs and `/openai/v1/` base URLs are accepted. This integration uses v1, so it does not need `api-version`; legacy deployment-specific preview URLs are rejected. Entra ID token acquisition and refresh are not implemented.
+
+`GAUNTLET_AGENT_MODEL` overrides `AZURE_OPENAI_DEPLOYMENT`; either applies to all agent roles. For separate deployments, leave both unset and set the role model fields in config. An explicit `--model` during URL onboarding or with `--agentic` overrides every role. Azure onboarding preserves the selected provider and role deployments when refreshed. `OPENAI_MODEL` does not select an Azure deployment.
+
+Choose an Azure deployment supporting both Responses and structured JSON-schema output. All live discovery, management, building, verification, critique, healing and configured developer calls use Azure; quality gates, evidence retention and retry limits are unchanged. Provider failures never select offline agents. `npm run agentic:verify` and `npm run maintenance:verify` also honor Azure configuration and make paid calls when run.

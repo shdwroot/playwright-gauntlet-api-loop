@@ -12,7 +12,7 @@ import { runGauntlet } from '../dist/src/gauntlet.js';
 import { snapshotContext, watchRevisions } from '../dist/src/maintenance.js';
 
 const { config: selected } = await loadConfig();
-assert.equal(selected.agents.provider, 'openai', 'This acceptance check requires real model calls');
+assert.notEqual(selected.agents.provider, 'deterministic', 'This acceptance check requires real model calls');
 const listener = createServer(); listener.listen(0, '127.0.0.1'); await once(listener, 'listening');
 const port = listener.address().port;
 await new Promise(resolve => listener.close(resolve));
